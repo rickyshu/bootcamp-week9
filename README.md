@@ -54,10 +54,10 @@ Spark 제출 기능은 EC2에서 다음 소규모 실제 분산 작업으로 확
 
 ```bash
 docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
-  spark-submit --master spark://spark-master:7077 \
-  --conf spark.driver.host=airflow \
-  /opt/de9/scripts/spark-smoke.py
+  python /opt/de9/scripts/verify-spark-submit.py
 ```
+
+이 명령은 `SparkSubmitOperator`를 직접 호출하여 실제 Spark 워커에서 계산하고 EC2 역할로 S3 버킷을 조회합니다. Q9의 DAG 스케줄 실행을 대신하는 증빙은 아닙니다.
 
 ## Q1 캡처
 

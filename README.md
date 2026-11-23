@@ -75,14 +75,26 @@ date && hostname && git rev-parse HEAD && bash scripts/create-ev-topic.sh
 
 | 파일 | 실제 화면에서 확인할 내용 |
 |---|---|
-| `ec2_instance.png` | AWS EC2 콘솔: Running, 인스턴스 ID, t3.large, IAM 역할 |
-| `security_group.png` | AWS 콘솔: 각 UI·SSH 포트의 소스가 본인 IP /32 |
-| `iam_role.png` | IAM 콘솔: de9-ec2-lhi 역할의 권한 정책 |
+| `ec2_instance.png` | 서울 리전 EC2 → 인스턴스 → de9-lhi 선택 → 인스턴스 요약/세부 정보. Running, 인스턴스 ID, t3.large, 프라이빗 IP, IAM 역할이 보이게 촬영 |
+| `security_group.png` | EC2 → 보안 그룹 → de9-lhi → 인바운드 규칙. TCP 22·4040·8080·8081·8082·8083과 각 소스의 본인 IP /32가 보이게 촬영 |
+| `iam_role.png` | IAM → 역할 → de9-ec2-lhi → 권한. Week9RuntimeLhi 정책을 펼쳐 S3·Athena·Glue 권한과 역할 이름이 보이게 촬영. 정책 본문 조회가 제한되면 같은 계정의 관리자 콘솔에서 촬영 |
 | `iam_role_check.png` | 실행 지문과 STS 결과: 역할 이름·세션 인스턴스 ID |
 | `docker_ps.png` | 실행 지문과 Kafka 3개·UI·Spark master/worker·Airflow 실행 상태 |
 | `topic_describe.png` | 실행 지문과 PartitionCount 3·ReplicationFactor 2, 각 파티션의 ISR |
 
 `scripts/verify-q1.sh`의 출력은 진단 보조용이며 위 화면 캡처를 대체하지 않습니다. EC2·IAM 콘솔 화면은 CLI 출력으로 대체할 수 없습니다. 미실행 상태에서 성공 캡처나 예시 결과를 만들지 않습니다.
+
+터미널 캡처는 로컬 터미널에서 SSH 접속한 **EC2 셸**에서 위 세 명령을 각각 실행한 화면입니다. 호스트명 `ip-프라이빗-IP`와 EC2 콘솔에 나온 프라이빗 IP가 대응해야 합니다. 날짜·호스트명·Git 커밋 해시·실행 명령·결과가 한 화면에 들어가도록 창을 넓힙니다. `docker ps`가 너무 넓으면 `docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'`를 사용해도 실제 컨테이너 이름·이미지·실행 상태를 확인할 수 있습니다.
+
+## 실제 실행 확인 기록
+
+2026-11-23 EC2에서 Q1 구성 코드 커밋 `1a9afcf`를 실행했습니다. 아래는 CLI·SSH로 실제 확인한 내용이고, 제출용 화면 캡처는 별도로 필요합니다.
+
+- Kafka 3개, Kafka UI, Spark master·worker, Airflow가 실행되고 상태 검사가 통과했습니다. Kafka UI는 별도 Docker healthcheck가 없는 서비스이며, 기동 후 HTTP health API를 추가 확인합니다.
+- `ev-charging-sessions`: 파티션 3개, 복제 2, 각 파티션 ISR 2개를 확인했습니다. Q2 데이터를 전송하지 않은 빈 토픽입니다.
+- `SparkSubmitOperator`가 Spark standalone 워커에 작업을 제출했습니다. 실제 분산 계산 결과는 `10`, Python 작업의 실행 호스트는 `spark-worker`, 워커 Python은 `3.11`이었습니다.
+- 같은 작업에서 S3A로 과제 버킷의 목록을 조회했고 EC2 역할 인증으로 성공했습니다. Q4·Q5의 데이터 적재를 실행한 것은 아닙니다.
+- 첫 Airflow 웹서버 초기화가 완료되지 않아 재시작으로 정상화했고, 초기화 여유를 위해 master·worker 시작 제한 시간을 300초로 설정했습니다.
 
 과제 중단 시 EC2를 **Stop**합니다. EBS 저장 요금은 중지 상태에도 남습니다. 다시 시작할 때 공인 IP와 보안그룹의 본인 IP를 확인합니다.
 

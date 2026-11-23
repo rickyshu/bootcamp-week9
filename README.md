@@ -249,6 +249,33 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 S3 캡처는 사용자가 실제 웹 콘솔에서 촬영합니다. CLI의 객체 목록이나 검증 출력으로 대신하지 않습니다. 코드 공개 저장소에는 CSV·키·캡처·실행 로그를 포함하지 않습니다.
 
+### Q4 실제 실행 확인 기록
+
+2026-11-24 07:57:39 한국 시각(2026-11-23 22:57:39 UTC)에 공개 코드 커밋 `6550109`로 동일 EC2에서 실행했습니다. 실행 전 Kafka 175건을 원본과 대조했고, 실제 Spark standalone worker에서 세 스트리밍 쿼리를 수행했습니다. Batch 0·1·2가 각각 59·58·58건을 읽었으며 Bronze/Silver 각각 Parquet 3개가 `dt=2017-06-06/batch_id=.../` 아래 생성됐습니다. 현재 입력 처리 후 세 쿼리는 정상 종료했습니다.
+
+별도 Spark 검증 작업으로 실제 S3 Parquet를 다시 읽어 원본 175행의 모든 값과 중복 횟수, Silver의 초 단위 정수 자료형·idleSec·locationGroup, 날짜 파티션과 집계를 검증했습니다. 모두 통과했습니다. 최종 설치구역별 건수는 아래와 같습니다.
+
+| locationGroup | 실제 건수 |
+|---|---:|
+| PALO ALTO CA / BRYANT | 18 |
+| PALO ALTO CA / CAMBRIDGE | 21 |
+| PALO ALTO CA / HAMILTON | 16 |
+| PALO ALTO CA / HIGH | 44 |
+| PALO ALTO CA / MPL | 22 |
+| PALO ALTO CA / RINCONADA LIB 1 | 4 |
+| PALO ALTO CA / RINCONADA LIB 2 | 4 |
+| PALO ALTO CA / RINCONADA LIB 3 | 5 |
+| PALO ALTO CA / TED THOMPSON | 11 |
+| PALO ALTO CA / WEBSTER | 30 |
+
+Q3 그룹은 Consumer 종료 상태(member 0·EMPTY)이며 커밋 오프셋 0=76·1=35·2=64가 그대로 유지됐습니다. Q4는 Q3 그룹을 리셋하지 않았습니다. 실행 stdout·진단 로그·검증 결과·S3 객체 목록·Q3 그룹 확인 JSON을 EC2 및 로컬 `.runtime/q4/`에 보관합니다. 실제 실행 터미널은 EC2의 `de9-q4` tmux 세션에 남겨 두었으며 아래 명령으로 연결합니다. **스트리밍을 재실행하지 않습니다.**
+
+```bash
+tmux attach -t de9-q4
+```
+
+SSH 재접속 후 창을 크게 열고 글자 크기를 줄여 실행 지문과 3개 Batch 표를 함께 촬영합니다. 필요하면 Ctrl+B를 누르고 손을 뗀 뒤 `[`로 스크롤 모드에 들어가 PageUp으로 실제 실행 화면 위쪽을 봅니다. `q`로 스크롤 모드를 끝내고 Ctrl+B를 누른 뒤 D로 화면에서 분리합니다. tmux는 EC2 중지 후에는 유지되지 않으므로 캡처를 먼저 완료합니다. 제출용 세 이미지의 촬영·저장은 별도 단계이며 위 검증 기록만으로 캡처 완료를 의미하지 않습니다.
+
 공식 동작 참고: [Spark 3.5 계열 Structured Streaming의 foreachBatch·체크포인트](https://spark.apache.org/docs/3.5.7/structured-streaming-programming-guide.html), [Kafka 입력·커넥터 배포](https://spark.apache.org/docs/3.5.7/structured-streaming-kafka-integration.html). 이 과제의 실제 설치 버전과 커넥터는 3.5.3으로 고정합니다.
 
 ## 참고

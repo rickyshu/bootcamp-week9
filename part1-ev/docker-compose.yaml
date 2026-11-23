@@ -1,0 +1,175 @@
+name: de9-lhi
+
+x-kafka-environment: &kafka-environment
+  KAFKA_PROCESS_ROLES: broker,controller
+  KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_HEAP_OPTS: -Xms384m -Xmx384m
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "2"
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "2"
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+  KAFKA_DEFAULT_REPLICATION_FACTOR: "2"
+  KAFKA_MIN_INSYNC_REPLICAS: "1"
+  KAFKA_NUM_PARTITIONS: "3"
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "3000"
+  KAFKA_LOG_RETENTION_HOURS: "168"
+
+x-kafka-service: &kafka-service
+  image: apache/kafka:3.9.1
+  platform: linux/amd64
+  restart: unless-stopped
+  mem_limit: 800m
+  healthcheck:
+    test: [CMD-SHELL, KAFKA_HEAP_OPTS='-Xms32m -Xmx96m' /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1]
+    interval: 30s
+    timeout: 15s
+    retries: 10
+    start_period: 90s
+  logging: &logging
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-runtime: &runtime
+  image: de9-runtime:airflow2.10.5-spark3.5.3-py3.11
+  platform: linux/amd64
+  build:
+    context: ..
+    dockerfile: part2-price/airflow/Dockerfile
+  restart: unless-stopped
+  env_file: .env
+  volumes:
+    - ..:/opt/de9:ro
+  logging: *logging
+
+services:
+  kafka-1:
+    <<: *kafka-service
+    hostname: kafka-1
+    environment:
+      <<: *kafka-environment
+      KAFKA_NODE_ID: "1"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+
+  kafka-2:
+    <<: *kafka-service
+    hostname: kafka-2
+    environment:
+      <<: *kafka-environment
+      KAFKA_NODE_ID: "2"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+
+  kafka-3:
+    <<: *kafka-service
+    hostname: kafka-3
+    environment:
+      <<: *kafka-environment
+      KAFKA_NODE_ID: "3"
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+    volumes:
+      - kafka-3-data:/var/lib/kafka/data
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    platform: linux/amd64
+    restart: unless-stopped
+    mem_limit: 448m
+    environment:
+      JAVA_OPTS: -Xms128m -Xmx256m
+      KAFKA_CLUSTERS_0_NAME: de9-lhi
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      DYNAMIC_CONFIG_ENABLED: "false"
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    logging: *logging
+
+  spark-master:
+    <<: *runtime
+    hostname: spark-master
+    mem_limit: 640m
+    environment:
+      SPARK_DAEMON_MEMORY: 384m
+    entrypoint: [/usr/bin/dumb-init, --]
+    command: [/opt/spark/bin/spark-class, org.apache.spark.deploy.master.Master, --host, spark-master, --port, "7077", --webui-port, "8080"]
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://localhost:8080/json/]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+
+  spark-worker:
+    <<: *runtime
+    hostname: spark-worker
+    mem_limit: 2304m
+    environment:
+      SPARK_DAEMON_MEMORY: 256m
+    entrypoint: [/usr/bin/dumb-init, --]
+    command: [/opt/spark/bin/spark-class, org.apache.spark.deploy.worker.Worker, --host, spark-worker, --cores, "1", --memory, 1536M, --webui-port, "8081", --work-dir, /tmp/spark-work, spark://spark-master:7077]
+    ports:
+      - "8082:8081"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://localhost:8081/json/]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+
+  airflow:
+    <<: *runtime
+    hostname: airflow
+    mem_limit: 1792m
+    environment:
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/de9/part2-price/dags
+      AIRFLOW__CORE__PARALLELISM: "1"
+      AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: "1"
+      AIRFLOW__WEBSERVER__WORKERS: "1"
+      AIRFLOW__SCHEDULER__PARSING_PROCESSES: "1"
+      AIRFLOW_CONN_SPARK_DEFAULT: '{"conn_type":"spark","host":"spark://spark-master","port":7077,"extra":{"deploy-mode":"client"}}'
+    command: standalone
+    ports:
+      - "8083:8080"
+      - "4040:4040"
+    volumes:
+      - ..:/opt/de9:ro
+      - airflow-home:/opt/airflow
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "curl --fail --silent http://localhost:8080/health | python -c 'import json,sys; h=json.load(sys.stdin); sys.exit(h[\"metadatabase\"][\"status\"] != \"healthy\" or h[\"scheduler\"][\"status\"] != \"healthy\")'"]
+      interval: 30s
+      timeout: 10s
+      retries: 15
+      start_period: 120s
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
+  airflow-home:

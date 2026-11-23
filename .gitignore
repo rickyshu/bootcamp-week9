@@ -1,0 +1,12 @@
+.env
+*.pem
+*.key
+.private/
+.runtime/
+__pycache__/
+*.pyc
+.DS_Store
+part1-ev/capture/**/*.png
+part2-price/capture/**/*.png
+data/*.csv
+git_log.txt

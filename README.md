@@ -239,7 +239,7 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 ### Q4 캡처
 
-`part1-ev/capture/Q4/`에 아래 세 이미지를 보관합니다. 실행 로그는 `.runtime/q4/stream.log`에 따로 저장되며 캡처를 대체하지 않습니다.
+`part1-ev/capture/Q4/`에 아래 세 이미지를 보관합니다. 실제 집계 출력은 `.runtime/q4/stream.log`, 시작·진단 로그는 `.runtime/q4/spark-stderr.log`에 따로 저장됩니다. 화면에는 실제 stdout 집계가 그대로 나오고 실패하면 진단 로그 끝부분도 표시합니다. 로그 파일은 캡처를 대체하지 않습니다.
 
 | 파일 | 촬영할 실제 화면 |
 |---|---|

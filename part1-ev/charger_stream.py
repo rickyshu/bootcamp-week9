@@ -107,7 +107,9 @@ def main():
         if args.drain:
             for query in queries:
                 query.processAllAvailable()
-                print(f"DRAINED {query.name}: {query.lastProgress}", flush=True)
+                progress = query.lastProgress or {}
+                print(f"DRAINED {query.name}: last_batch={progress.get('batchId')}; "
+                      f"last_input_rows={progress.get('numInputRows')}", flush=True)
             print("Q4 all available input processed; stopping streams", flush=True)
         else:
             spark.streams.awaitAnyTermination()

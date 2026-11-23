@@ -7,5 +7,5 @@ if [[ ! -f .env ]]; then
 fi
 docker compose config --quiet
 docker compose build airflow
-docker compose up -d --wait --wait-timeout 420
+docker compose up -d --wait --wait-timeout 900
 ../scripts/create-ev-topic.sh

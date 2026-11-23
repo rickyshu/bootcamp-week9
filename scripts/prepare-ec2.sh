@@ -12,6 +12,9 @@ printf '%s\n' \
   'Acquire::Retries "2";' \
   'Acquire::IndexTargets::deb::CNF::DefaultEnabled "false";' \
   | sudo tee /etc/apt/apt.conf.d/99-de9-network >/dev/null
+sudo sed -i \
+  's|http://security.ubuntu.com/ubuntu|http://ap-northeast-2.ec2.archive.ubuntu.com/ubuntu|g' \
+  /etc/apt/sources.list
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git unzip awscli
 sudo install -m 0755 -d /etc/apt/keyrings

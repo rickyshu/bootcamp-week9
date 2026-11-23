@@ -90,12 +90,14 @@ date && hostname && git rev-parse HEAD && bash scripts/create-ev-topic.sh
 
 ## 실제 실행 확인 기록
 
-2026-11-23 EC2에서 Q1 구성 코드 커밋 `1a9afcf`를 실행했습니다. 아래는 CLI·SSH로 실제 확인한 내용이고, 제출용 화면 캡처는 별도로 필요합니다.
+2026-11-23 EC2에서 최종 Q1 구성 코드 커밋 `c7294f5`를 실행했습니다. 아래는 CLI·SSH로 실제 확인한 내용이고, 제출용 화면 캡처는 별도로 필요합니다.
 
-- Kafka 3개, Kafka UI, Spark master·worker, Airflow가 실행되고 상태 검사가 통과했습니다. Kafka UI는 별도 Docker healthcheck가 없는 서비스이며, 기동 후 HTTP health API를 추가 확인합니다.
+- Kafka 3개, Kafka UI, Spark master·worker, Airflow가 실행되고 상태 검사가 통과했습니다. Kafka UI는 별도 Docker healthcheck가 없는 서비스이며, HTTP health API의 `UP` 응답을 확인했습니다.
 - `ev-charging-sessions`: 파티션 3개, 복제 2, 각 파티션 ISR 2개를 확인했습니다. Q2 데이터를 전송하지 않은 빈 토픽입니다.
 - `SparkSubmitOperator`가 Spark standalone 워커에 작업을 제출했습니다. 실제 분산 계산 결과는 `10`, Python 작업의 실행 호스트는 `spark-worker`, 워커 Python은 `3.11`이었습니다.
 - 같은 작업에서 S3A로 과제 버킷의 목록을 조회했고 EC2 역할 인증으로 성공했습니다. Q4·Q5의 데이터 적재를 실행한 것은 아닙니다.
+- EC2 역할로 Athena 워크그룹 `de9-lhi`의 설정 조회도 성공했습니다. 실제 분석 SQL 실행은 Q5·Q9에서 진행합니다.
+- 최종 분산 작업 직후 Airflow DB·스케줄러·triggerer health API가 모두 healthy였고, 메모리 종료 카운터는 0이었습니다. Airflow 컨테이너의 관찰된 메모리 최고 사용량은 약 2.12GiB로 조정된 2.5GiB 상한 안에 들어왔습니다.
 - 첫 Airflow 웹서버 초기화가 완료되지 않아 재시작으로 정상화했고, 초기화 여유를 위해 master·worker 시작 제한 시간을 300초로 설정했습니다.
 
 과제 중단 시 EC2를 **Stop**합니다. EBS 저장 요금은 중지 상태에도 남습니다. 다시 시작할 때 공인 IP와 보안그룹의 본인 IP를 확인합니다.

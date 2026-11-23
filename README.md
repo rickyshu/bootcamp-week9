@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1 실행 환경 구성과 Q2 전기차 Producer**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 범위는 **Q1 실행 환경 구성과 Q2·Q3 전기차 Producer/Consumer**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -151,6 +151,37 @@ tmux attach -t de9-q2
 `kafka_ui_topic.png`는 브라우저에서 EC2 공인 IP의 8080 포트 → 클러스터 `de9-lhi` → Topics → `ev-charging-sessions`를 열고 토픽 이름·메시지 수 175·파티션 3·복제 2가 보이게 촬영합니다. 이 저장소에 원본 CSV·키·캡처·실행 로그를 공개하지 않습니다.
 
 공식 동작 근거: [kafka-python 2.3.2 KafkaProducer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
+
+## Q3: 두 Consumer와 수동 오프셋 커밋
+
+Consumer는 Kafka를 읽는 Python 객체이며, 이 실험에서는 같은 EC2의 Airflow 컨테이너 안에서 별도의 Python 프로세스 두 개를 실행합니다. 컨테이너나 EC2를 두 대 만드는 것이 아닙니다. 두 프로세스의 client ID는 다르고 group ID는 `ev-consumer-lhi`로 같습니다. 그룹의 멤버와 파티션 할당·커밋 오프셋은 Kafka 브로커가 관리합니다.
+
+Q2의 기존 메시지 175건을 그대로 사용합니다. 그룹은 `subscribe()`로 동적으로 참여합니다. `assign()`으로 파티션을 수동 고정하지 않습니다. A가 먼저 참여할 때의 할당과 B 합류 후의 revoked/assigned 콜백을 실제 로그에 출력해 리밸런싱을 관찰합니다.
+
+첫 Consumer가 모든 데이터를 먼저 읽지 않도록 할당 직후 `pause()`하고, `poll()`로 그룹 참여를 유지합니다. 두 멤버의 파티션 분담이 안정화된 것을 확인한 뒤 호스트의 `.runtime/q3/start` 파일을 생성하면 소비를 시작합니다. 이 파일은 레코드를 담지 않는 실행 제어용 신호입니다.
+
+`enable_auto_commit=False`로 자동 커밋을 끕니다. 각 JSON의 endedBy 집계가 끝난 다음 **해당 레코드 offset+1**만 동기 커밋합니다. 예를 들어 offset 7 처리 후 커밋 8은 다음 읽을 위치를 뜻하며, 8번 레코드를 이미 처리했다는 뜻은 아닙니다. 미리 읽어 둔 다른 레코드의 poll 위치 전체를 커밋하지 않습니다.
+
+호스트 터미널의 두 창에서 실행할 명령은 다음과 같습니다. 기존 그룹을 초기화하거나 Producer를 재실행하지 않습니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q3-consumer.sh a
+date && hostname && git rev-parse HEAD && bash scripts/run-q3-consumer.sh b
+```
+
+A가 먼저 그룹에 가입한 상태에서 B를 시작하고 두 멤버가 안정화된 뒤, 별도 EC2 호스트 셸에서 시작 신호를 생성합니다.
+
+```bash
+touch .runtime/q3/start
+```
+
+각 Consumer는 자신의 파티션을 모두 처리하면 3종 endedBy 건수·총합·커밋 위치를 출력합니다. 이후에도 pause/poll을 유지하므로 Kafka UI 캡처 시 member 2개가 남습니다. 실제 offset별 처리 기록은 컨테이너 `/tmp/de9-q3-a.json`, `/tmp/de9-q3-b.json`에 저장합니다. 읽기 전용 `scripts/verify-q3.py`가 두 보고서를 원본 CSV 및 토픽의 실제 offset 범위와 대조해 중복·누락과 집계 불일치를 확인합니다.
+
+필수 캡처는 `part1-ev/capture/Q3/endedby_counts.png`(두 실제 실행 화면의 지문·각 endedBy 건수), `consumer_group_lag.png`(Kafka UI의 `ev-consumer-lhi`, member 2개, 각 파티션 current-offset·LAG)입니다. 집계 후 lag=0인 화면도 정상 결과입니다. 캡처 전에는 Consumer를 종료하거나 오프셋을 리셋하지 않습니다.
+
+캡처가 끝난 뒤 두 Consumer를 정상 종료하려면 별도 호스트 셸에서 `touch .runtime/q3/stop`을 실행합니다. 종료하면 멤버 수가 줄어드므로 member 2개 캡처를 먼저 완료해야 합니다. 과제의 오프셋 리셋은 Q10에서 별도로 수행합니다.
+
+공식 동작 근거: [kafka-python 2.3.2 KafkaConsumer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaConsumer.html).
 
 ## 참고
 

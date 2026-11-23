@@ -120,7 +120,7 @@ services:
   spark-worker:
     <<: *runtime
     hostname: spark-worker
-    mem_limit: 2304m
+    mem_limit: 2048m
     environment:
       SPARK_DAEMON_MEMORY: 256m
     entrypoint: [/usr/bin/dumb-init, --]
@@ -139,7 +139,7 @@ services:
   airflow:
     <<: *runtime
     hostname: airflow
-    mem_limit: 1792m
+    mem_limit: 2560m
     environment:
       AIRFLOW__CORE__EXECUTOR: SequentialExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db

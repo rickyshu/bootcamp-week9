@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1 실행 환경 구성과 Q2·Q3 전기차 Producer/Consumer**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 범위는 **Q1 실행 환경 구성, Q2·Q3 전기차 Producer/Consumer와 Q4 Spark 스트리밍 코드**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -203,6 +203,53 @@ tmux attach -t de9-q3
 Ctrl+B를 누르고 손을 뗀 뒤 D를 눌러 화면에서만 분리합니다. Consumer는 종료하지 않습니다. Kafka UI에서 Consumers → `ev-consumer-lhi` 상세 화면을 열고 그룹명·member 2개·각 파티션의 current-offset·LAG가 보이게 `consumer_group_lag.png`를 찍습니다. 캡처가 끝나기 전에는 stop 파일을 생성하거나 EC2를 중지하지 않습니다. 실제 보고서·리밸런싱 로그·API 응답도 호스트 `.runtime/q3/`에 보관했고 공개 Git에서는 제외합니다.
 
 공식 동작 근거: [kafka-python 2.3.2 KafkaConsumer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaConsumer.html).
+
+## Q4: Kafka 스트림을 S3 Bronze/Silver에 저장
+
+`part1-ev/charger_stream.py`는 Spark driver가 실행하는 Python 프로그램입니다. `spark.readStream`으로 만든 DataFrame은 Kafka에서 읽을 방법을 정의한 실행 계획이며, `writeStream.start()`를 호출하면 실제 스트리밍 쿼리가 시작됩니다. Spark worker의 executor가 데이터를 읽고 변환·저장합니다. Q3의 Python Consumer와 별개의 실행이며, `ev-consumer-lhi` 그룹을 재사용하거나 리셋하지 않습니다.
+
+이 프로그램은 명시적인 10개 필드 JSON 스키마로 Q2의 기존 메시지를 해석합니다. 같은 입력 계획에서 세 쿼리를 시작합니다. Bronze와 Silver는 각각 `foreachBatch`로 매 트리거의 DataFrame을 Parquet 파일로 저장하고, 세 번째 쿼리는 `locationGroup`별 누적 건수를 complete 모드의 Spark console sink로 출력합니다. 충전소 이름은 `truncate=false`로 잘리지 않게 출력합니다. CSV를 직접 읽어 스트리밍 입력을 대신하지 않습니다.
+
+Bronze의 원본 10개 값과 자료형은 그대로 유지합니다. Silver에서는 예를 들어 `PALO ALTO CA / CAMBRIDGE #2`의 끝 ` #2`만 제거해 `locationGroup`을 만들고, `1:46:26`을 6386초로 바꿔 `totalDuration`에 저장합니다. `chargingDuration`도 초 단위 정수로 바꾸며 두 값의 차이를 `idleSec`에 저장합니다. 날짜·시간 문자열과 `stationName` 원본은 유지합니다. 기간은 시계가 아니므로 24시간 이상도 계산할 수 있습니다.
+
+S3 경로의 `dt`는 처리한 오늘 날짜가 아니라 이벤트의 `startTime` 날짜입니다. 이 CSV의 예상 파티션은 `dt=2017-06-06`입니다. 각 마이크로배치는 그 아래 `batch_id=00000000/` 같은 별도 디렉터리에 저장합니다. 동일 배치 재시도는 자기 배치 경로만 덮어써 중복 append를 피합니다. 다른 배치의 결과를 덮어쓰지 않습니다. 이 방식은 Spark의 원자적 파일 sink나 트랜잭션 저장소와 같지 않아 장애 중에는 배치 파일이 일시적으로 불완전할 수 있으며, 성공한 재시도와 검증이 필요합니다.
+
+세 쿼리는 각각 `s3://버킷/checkpoints/q4/{bronze,silver,counts}/`에 처리 위치와 집계 상태를 남깁니다. **체크포인트와 출력 경로를 함께 보존**해야 합니다. 출력만 남기고 체크포인트를 지우거나 실행 옵션·변환 계획을 바꿔 재생하면 잘못된 결과가 생길 수 있습니다. 첫 실행의 `startingOffsets=earliest`는 이미 입력된 175건을 처음부터 읽기 위한 설정이고, 재개 시에는 체크포인트의 위치를 따릅니다.
+
+### 실행과 읽기 전용 검증
+
+코드를 커밋·push한 뒤 EC2에서 pull합니다. EC2 재시작 후 기존 Docker 볼륨을 유지한 상태에서 서비스를 시작하고 Kafka에 기존 175건이 남았는지 먼저 확인합니다. Q2 Producer는 재실행하지 않습니다. Kafka 커넥터는 설치된 Spark와 맞춘 `spark-sql-kafka-0-10_2.12:3.5.3`을 spark-submit의 `--packages`로 추가합니다.
+
+EC2 호스트에서 실행 지문과 함께 아래 명령을 실행합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q4.sh
+```
+
+기본 20초 트리거와 트리거당 약 60건의 상한으로 기존 입력을 여러 번에 나눠 처리합니다. 세 쿼리는 독립적으로 진행하므로 같은 시점에 출력되는 Bronze/Silver 배치 번호와 console 번호가 반드시 일치하지는 않습니다. `--drain` 모드는 실제 스트리밍 쿼리에 `processAllAvailable()`을 호출해 현재 입력을 모두 처리한 뒤 정상 종료합니다. Kafka에 가짜 이벤트를 추가하지 않습니다. 일반적인 계속 실행은 `charger_stream.py`에서 `--drain`을 생략하면 되며, Q9 배치와 동시에 실행하지 않습니다.
+
+S3에 쓰인 결과 전체의 검증은 EC2에서 별도 Spark 작업으로 수행합니다. 이 검증은 Kafka 그룹이나 S3 데이터를 변경하지 않습니다.
+
+```bash
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  spark-submit --conf spark.driver.host=airflow /opt/de9/scripts/verify-q4.py
+```
+
+검증 코드는 실제 S3 Parquet를 다시 읽어 원본 CSV 175행 전체의 값·중복 횟수, Silver의 초 변환·idleSec·locationGroup, 날짜 파티션과 설치구역별 합계를 대조합니다. CSV에서 계산한 예상 설치구역 수는 10개이며, 실제 적재 검증을 수행하기 전에는 성공 결과로 간주하지 않습니다.
+
+### Q4 캡처
+
+`part1-ev/capture/Q4/`에 아래 세 이미지를 보관합니다. 실행 로그는 `.runtime/q4/stream.log`에 따로 저장되며 캡처를 대체하지 않습니다.
+
+| 파일 | 촬영할 실제 화면 |
+|---|---|
+| `spark_streaming.png` | EC2 호스트의 실행 지문과 Spark console sink의 연속 2~3개 Batch 누적 집계. 전체 설치구역 이름이 보이게 촬영 |
+| `s3_bronze.png` | AWS S3 웹 콘솔 → 본인 버킷 → `bronze/ev-charging-sessions/dt=2017-06-06/` 아래 배치별 Parquet 객체 목록. 필요하면 객체 검색으로 하위 경로까지 표시 |
+| `s3_silver.png` | 같은 버킷의 `silver/ev-charging-sessions/dt=2017-06-06/` 아래 배치별 Parquet 객체 목록 |
+
+S3 캡처는 사용자가 실제 웹 콘솔에서 촬영합니다. CLI의 객체 목록이나 검증 출력으로 대신하지 않습니다. 코드 공개 저장소에는 CSV·키·캡처·실행 로그를 포함하지 않습니다.
+
+공식 동작 참고: [Spark 3.5 계열 Structured Streaming의 foreachBatch·체크포인트](https://spark.apache.org/docs/3.5.7/structured-streaming-programming-guide.html), [Kafka 입력·커넥터 배포](https://spark.apache.org/docs/3.5.7/structured-streaming-kafka-integration.html). 이 과제의 실제 설치 버전과 커넥터는 3.5.3으로 고정합니다.
 
 ## 참고
 

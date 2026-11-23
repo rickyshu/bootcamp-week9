@@ -181,6 +181,27 @@ touch .runtime/q3/start
 
 캡처가 끝난 뒤 두 Consumer를 정상 종료하려면 별도 호스트 셸에서 `touch .runtime/q3/stop`을 실행합니다. 종료하면 멤버 수가 줄어드므로 member 2개 캡처를 먼저 완료해야 합니다. 과제의 오프셋 리셋은 Q10에서 별도로 수행합니다.
 
+### Q3 실제 실행과 캡처
+
+2026-11-23 EC2에서 공개 코드 커밋 `356742d`로 A를 먼저 참여시키고 B를 합류시켰습니다. A의 파티션 `[0,1,2]`가 revoked되고 `[0,1]`이 재할당되는 콜백을 관찰했습니다. B는 `[2]`를 할당받았습니다. 실제 그룹이 STABLE·member 2개인 것을 확인한 뒤 start 신호를 생성했습니다.
+
+| 실제 처리 결과 | Consumer A | Consumer B | 합계 |
+|---|---:|---:|---:|
+| CPS Server | 1 | 1 | 2 |
+| Customer | 12 | 6 | 18 |
+| Plug Out at Vehicle | 98 | 57 | 155 |
+| 전체 | 111 | 64 | 175 |
+
+두 보고서를 검증해 175개 `(partition,offset)`이 중복·누락 없이 처리됐고 원본 CSV의 endedBy 건수와 일치함을 확인했습니다. Kafka UI의 실제 읽기 API에서는 member 2개·STABLE·전체 lag 0, 파티션 0·1·2의 current-offset=76·35·64와 각각 lag 0을 확인했습니다.
+
+실제 실행 화면은 EC2의 `de9-q3` tmux 세션에 두 창을 나란히 배치해 보존하고 있습니다. SSH 접속한 터미널에서 아래 명령으로 연결하고, 창을 넓혀 양쪽의 실행 지문·리밸런싱·각 endedBy 집계를 함께 `endedby_counts.png`로 촬영합니다. 프로그램은 재실행하지 않습니다.
+
+```bash
+tmux attach -t de9-q3
+```
+
+Ctrl+B를 누르고 손을 뗀 뒤 D를 눌러 화면에서만 분리합니다. Consumer는 종료하지 않습니다. Kafka UI에서 Consumers → `ev-consumer-lhi` 상세 화면을 열고 그룹명·member 2개·각 파티션의 current-offset·LAG가 보이게 `consumer_group_lag.png`를 찍습니다. 캡처가 끝나기 전에는 stop 파일을 생성하거나 EC2를 중지하지 않습니다. 실제 보고서·리밸런싱 로그·API 응답도 호스트 `.runtime/q3/`에 보관했고 공개 Git에서는 제외합니다.
+
 공식 동작 근거: [kafka-python 2.3.2 KafkaConsumer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaConsumer.html).
 
 ## 참고

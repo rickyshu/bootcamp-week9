@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1 실행 환경 구성**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 Q1 완료로 간주하지 않습니다.
+현재 범위는 **Q1 실행 환경 구성과 Q2 전기차 Producer**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -101,6 +101,42 @@ date && hostname && git rev-parse HEAD && bash scripts/create-ev-topic.sh
 - 첫 Airflow 웹서버 초기화가 완료되지 않아 재시작으로 정상화했고, 초기화 여유를 위해 master·worker 시작 제한 시간을 300초로 설정했습니다.
 
 과제 중단 시 EC2를 **Stop**합니다. EBS 저장 요금은 중지 상태에도 남습니다. 다시 시작할 때 공인 IP와 보안그룹의 본인 IP를 확인합니다.
+
+## Q2: CSV를 Kafka로 한 번 전송
+
+Producer는 Kafka 라이브러리의 Python 객체입니다. `part1-ev/charger_producer.py`를 실행한 프로세스 안에서 생성되고, 원본 CSV를 읽어 Kafka 브로커에 네트워크 요청을 보냅니다. CSV 파일이 Kafka 토픽 자체가 되는 것은 아닙니다. 전송 후에는 JSON 메시지가 브로커의 로그와 Docker 데이터 볼륨에 남습니다.
+
+원본 `data/charger_sessions.csv`는 공유 Drive의 제공 파일을 수정하지 않고 EC2에 별도로 복사합니다. 175행, 21,583바이트이며 SHA256은 `6ffb4fafd1fcc4e42ac21d2fa02869e309eb48800ac06719eafaf5622a4a32f8`입니다. 원본 CSV는 공개 Git에 포함하지 않고 최종 제출 ZIP의 data 폴더에 포함합니다.
+
+코드는 `startTime`을 날짜·시각 값으로 읽어 정렬하고 행 사이에 0.1초를 기다립니다. 각 메시지의 key는 `stationName`의 UTF-8 바이트이고 value는 요구된 10개 필드를 가진 JSON입니다. `portNumber`는 정수, `energyKwh`는 실수, 날짜·기간은 원본 문자열을 사용합니다. 같은 key는 기본 파티셔너의 해시로 같은 파티션에 들어갑니다. 서로 다른 파티션 사이에는 Kafka가 전체 시간순 소비를 보장하지 않습니다.
+
+`acks=all`은 현재 동기화된 복제본의 확인을 기다리고, `enable_idempotence=True`는 같은 Producer 세션의 내부 재시도로 생길 중복을 방지합니다. 이 라이브러리 버전에서는 `max_in_flight_requests_per_connection=1`을 함께 사용합니다. 애플리케이션을 다시 실행해서 같은 175행을 다시 send하는 것까지 중복 제거하지는 않습니다. 이 때문에 기존 토픽의 오프셋이 모두 0인 새 빈 토픽에서만 전송하도록 보호합니다. `try...finally`에서 flush와 close를 보장하고, 로그의 ACK 건수는 실제 브로커 확인을 받은 건수입니다.
+
+EC2에서 CSV만 먼저 확인하려면 다음 명령을 사용합니다. 이 모드에서는 Kafka 연결과 send를 수행하지 않습니다.
+
+```bash
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  python /opt/de9/part1-ev/charger_producer.py --validate-only
+```
+
+실제 전송은 **한 번만** 실행합니다. 코드를 커밋·push하고 EC2에서 pull한 뒤 EC2 호스트에서 실행 지문과 함께 실행합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q2.sh
+```
+
+이미 한 번 성공한 명령은 캡처를 위해 다시 실행하지 않습니다. 실제 실행 터미널 세션을 유지하면 나중에 같은 화면을 캡처할 수 있습니다. 전송 기록은 EC2의 `.runtime/q2-producer.log`에도 보관하지만, 이 파일은 실제 실행 화면 캡처와 Kafka UI 캡처를 대신하지 않습니다. 실패 후 일부만 전송된 경우에도 자동으로 재전송하거나 토픽을 삭제하지 않습니다. 후속 단계·체크포인트와 함께 원인을 확인하고 문제지의 초기화 절차를 따릅니다.
+
+읽기 전용 검증은 다음 명령으로 수행합니다. 검증용 Consumer는 그룹에 가입하거나 오프셋을 커밋하지 않아 Q3 그룹 실험에 영향을 주지 않습니다. 원본 전체 행과 Kafka JSON의 값·중복 횟수, key, 파티션별 시간순서, station별 파티션 일치를 대조합니다.
+
+```bash
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  python /opt/de9/scripts/verify-q2.py
+```
+
+필수 캡처는 `part1-ev/capture/Q2/producer_run.png`(실행 지문과 실제 전송 결과), `kafka_ui_topic.png`(Kafka UI의 ev-charging-sessions 토픽과 메시지 수 175)입니다. Kafka UI에서 메시지를 새로 보내거나 삭제하지 않습니다. 아직 실제 전송 여부와 결과는 실행 후 별도로 기록합니다.
+
+공식 동작 근거: [kafka-python 2.3.2 KafkaProducer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
 
 ## 참고
 

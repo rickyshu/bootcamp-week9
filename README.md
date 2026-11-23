@@ -12,6 +12,8 @@ Ubuntu 22.04 EC2 한 대(`t3.large`, EBS 30GiB)에 `part1-ev/docker-compose.yaml
 
 Kafka는 ZooKeeper 대신 브로커에 포함된 KRaft controller를 사용합니다. 브로커마다 JVM 힙을 384MiB로 제한하고 Spark worker는 작업에 1536MiB·1코어를 제공합니다. `mem_limit`은 컨테이너 전체 메모리 상한이며 JVM 힙과 같은 값이 아닙니다. Q4 스트리밍과 Q9 배치를 동시에 실행하지 않습니다.
 
+Kafka 컨테이너의 주기적인 상태 검사는 새 JVM을 띄우지 않고 내부 9092 포트 연결을 확인합니다. 실제 Kafka 프로토콜과 파티션·복제 상태는 시작 스크립트 마지막의 토픽 생성·describe 명령으로 별도 검증합니다.
+
 S3·Athena 접근 권한은 EC2에 연결한 IAM 역할 `de9-ec2-lhi`에서 받습니다. 역할을 컨테이너까지 전달할 수 있도록 EC2의 IMDSv2를 활성화하고 응답 hop limit을 2로 설정합니다. `.env`는 리전·버킷명 같은 설정값을 담고 AWS 액세스 키는 담지 않습니다. Kafka 데이터와 Airflow DB·실행 로그는 Docker named volume에 저장되어 컨테이너 재시작 후에도 유지됩니다. `docker compose down -v`는 이 데이터를 지우므로 사용하지 않습니다.
 
 ## 준비

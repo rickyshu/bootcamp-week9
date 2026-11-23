@@ -134,7 +134,21 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
   python /opt/de9/scripts/verify-q2.py
 ```
 
-필수 캡처는 `part1-ev/capture/Q2/producer_run.png`(실행 지문과 실제 전송 결과), `kafka_ui_topic.png`(Kafka UI의 ev-charging-sessions 토픽과 메시지 수 175)입니다. Kafka UI에서 메시지를 새로 보내거나 삭제하지 않습니다. 아직 실제 전송 여부와 결과는 실행 후 별도로 기록합니다.
+필수 캡처는 `part1-ev/capture/Q2/producer_run.png`(실행 지문과 실제 전송 결과), `kafka_ui_topic.png`(Kafka UI의 ev-charging-sessions 토픽과 메시지 수 175)입니다. Kafka UI에서 메시지를 새로 보내거나 삭제하지 않습니다.
+
+### Q2 실제 실행과 캡처
+
+2026-11-23 12:12:54 UTC(한국 21:12:54)에 공개 커밋 `9f52fb8`로 EC2에서 Producer를 한 번 실행했습니다. ACK 175건, 파티션별 0=76·1=35·2=64건이었습니다. 원본 CSV 전체와 Kafka 메시지 전체의 값·중복 횟수가 일치했고 23개 station의 key·파티션 일치, 파티션별 시간순서 검증도 통과했습니다. Kafka UI의 읽기 API에서도 각 파티션의 시작 오프셋 0, 끝 오프셋 76·35·64와 ISR 2개를 확인했습니다. 브로커를 실제로 중단하는 장애 주입 실험은 수행하지 않았습니다.
+
+실제 실행 터미널은 EC2의 `de9-q2` tmux 세션에 남겨 두었습니다. tmux는 서버에서 셸 화면을 유지하는 터미널 프로그램입니다. SSH 접속 후 아래 명령으로 기존 실행 화면에 연결합니다. Producer를 재실행하거나 저장 로그를 실행 결과처럼 꾸미는 명령이 아닙니다.
+
+```bash
+tmux attach -t de9-q2
+```
+
+창을 넓혀 실행 명령·날짜·호스트명·커밋 해시·`SUCCESS: 175 messages acknowledged`까지 보이게 `producer_run.png`를 찍습니다. 캡처 후 Ctrl+B를 누르고 손을 뗀 다음 D를 누르면 화면에서 분리됩니다. 세션을 종료하거나 전송 명령을 다시 입력하지 않습니다.
+
+`kafka_ui_topic.png`는 브라우저에서 EC2 공인 IP의 8080 포트 → 클러스터 `de9-lhi` → Topics → `ev-charging-sessions`를 열고 토픽 이름·메시지 수 175·파티션 3·복제 2가 보이게 촬영합니다. 이 저장소에 원본 CSV·키·캡처·실행 로그를 공개하지 않습니다.
 
 공식 동작 근거: [kafka-python 2.3.2 KafkaProducer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
 

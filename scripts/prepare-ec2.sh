@@ -5,6 +5,13 @@ if ! grep -q 'VERSION_ID="22.04"' /etc/os-release; then
   echo 'Ubuntu 22.04에서 실행하세요.' >&2
   exit 1
 fi
+printf '%s\n' \
+  'Acquire::ForceIPv4 "true";' \
+  'Acquire::http::Timeout "20";' \
+  'Acquire::https::Timeout "20";' \
+  'Acquire::Retries "2";' \
+  'Acquire::IndexTargets::deb::CNF::DefaultEnabled "false";' \
+  | sudo tee /etc/apt/apt.conf.d/99-de9-network >/dev/null
 sudo apt-get update
 sudo apt-get install -y ca-certificates curl git unzip awscli
 sudo install -m 0755 -d /etc/apt/keyrings

@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q6 구현·실제 실행·검증 및 캡처를 완료**했고, **Q7 코드를 준비**했습니다. Q7의 실제 Kafka→S3 배치 실행은 아직 하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q6 구현·실제 실행·검증 및 캡처를 완료**했고, **Q7 구현·실제 실행·검증을 완료**했습니다. Q7 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -408,7 +408,7 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 처음 읽은 Kafka DataFrame은 처리 중 메모리에 캐시합니다. Bronze는 S3 `bronze/product-prices/`의 Parquet 파일에 메시지의 원본 `key`·`value` 바이트를 그대로 저장하며, `topic`·`partition`·`offset`·`timestamp`로 실제 Kafka 레코드를 식별할 수 있습니다. Bronze는 파싱된 Silver와 달리 JSON의 공백·키 순서도 보존합니다.
 
-Silver는 명시한 JSON 스키마로 메시지를 파싱하고 `price`를 `double` 실수형으로 바꿉니다. 가격이 없거나 0 이하이면 제외하며, 숫자로 변환할 수 없는 값·NaN·무한대도 제외합니다. 유효한 7개 필드를 S3 `silver/product-prices/`의 Parquet 파일에 저장합니다. 제공 원본에는 제외 대상이 없어 **예상 Bronze·Silver 행 수는 각각 200행**입니다. 이는 실행 전 예상치이며 실제 파일 검증은 별도로 수행합니다.
+Silver는 명시한 JSON 스키마로 메시지를 파싱하고 `price`를 `double` 실수형으로 바꿉니다. 가격이 없거나 0 이하이면 제외하며, 숫자로 변환할 수 없는 값·NaN·무한대도 제외합니다. 유효한 7개 필드를 S3 `silver/product-prices/`의 Parquet 파일에 저장합니다. 제공 원본에는 제외 대상이 없어 **예상 Bronze·Silver 행 수는 각각 200행**입니다. 실제 파일 검증 결과도 아래에 기록했습니다.
 
 저장 후 Silver의 `item_name`·`month`별 평균·최고·최저 가격을 계산하여 품목명·월 순으로 20개 그룹을 모두 콘솔에 출력합니다. 저장 모드는 각 가격 경로의 전체 스냅샷을 교체하는 `overwrite`이므로, Q9에서 전체 토픽을 다시 읽어도 단순 append 중복을 만들지 않습니다. S3 두 경로의 교체는 하나의 원자적 트랜잭션이 아니므로 작업 중간에 실패하면 완료 상태와 양쪽 출력을 확인한 뒤 재실행해야 합니다. 전기차 경로와 Kafka 원본은 변경하지 않습니다.
 
@@ -437,6 +437,21 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 | `batch_console.png` | EC2 호스트 실행 지문과 spark-submit 실행 결과, 20개 품목·월별 평균·최고·최저 가격 집계 |
 | `s3_bronze_price.png` | S3 웹 콘솔의 본인 버킷 `bronze/product-prices/` 경로와 실제 객체 목록 |
 | `s3_silver_price.png` | S3 웹 콘솔의 본인 버킷 `silver/product-prices/` 경로와 실제 Parquet 객체 목록 |
+
+### Q7 실제 실행 확인 기록
+
+2026-11-24 19:21:41 한국 시각(10:21:41 UTC)에 공개 커밋 `67777408d8a7cd908c625e75ac0bf091d7d6f54f`로 기존 EC2 `ip-172-31-11-232`에서 실행했습니다. Spark standalone 실행 ID는 `app-20261124102150-0004`입니다. Q6 토픽의 200건을 배치로 읽어 Bronze 200행·Silver 200행을 저장했고, 제외 행은 0행이었습니다. 20개 품목·월별 집계를 모두 콘솔에 출력한 뒤 `Q7 SUCCESS`와 함께 정상 종료했습니다.
+
+실제 S3 출력은 다음과 같습니다. 두 경로에 각각 Parquet 1개와 `_SUCCESS`가 생성됐습니다.
+
+| 경로 | Parquet 크기 | 실제 행 수 |
+|---|---:|---:|
+| `bronze/product-prices/` | 7,331 bytes | 200 |
+| `silver/product-prices/` | 3,320 bytes | 200 |
+
+별도의 검증 프로그램이 S3 Bronze를 Kafka 원본 key/value 바이트·topic/partition/offset과 대조해 완전히 일치함을 확인했습니다. Silver의 `price=double`, 200개 행의 모든 CSV 값·중복 횟수, 20개 그룹 평균·최고·최저 가격을 독립 Decimal 계산과 대조하여 통과했습니다. 결측·0·음수·숫자 변환 실패·NaN·무한대 가격의 제외 검사도 통과했습니다. Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
+
+실제 배치 실행 화면은 EC2 `de9-q7` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Bronze·Silver 객체 목록은 EC2와 로컬 `.runtime/q7/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출 PNG 3개는 실제 터미널 및 AWS S3 웹 콘솔에서 별도로 촬영해야 합니다.
 
 공식 참고: [Spark 3.5 계열 Kafka 배치 읽기와 원본 열 구조](https://spark.apache.org/docs/3.5.6/structured-streaming-kafka-integration.html#creating-a-kafka-source-for-batch-queries). 실행 라이브러리는 기존 환경과 동일한 Spark 3.5.3입니다.
 

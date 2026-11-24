@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q6 구현·실제 실행·검증 및 캡처를 완료**했고, **Q7 구현·실제 실행·검증을 완료**했습니다. Q7 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q7 구현·실제 실행·검증 및 캡처를 완료**했고, **Q8 코드를 준비**했습니다. Q8의 실제 Silver→Gold 실행은 아직 하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -451,9 +451,72 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 별도의 검증 프로그램이 S3 Bronze를 Kafka 원본 key/value 바이트·topic/partition/offset과 대조해 완전히 일치함을 확인했습니다. Silver의 `price=double`, 200개 행의 모든 CSV 값·중복 횟수, 20개 그룹 평균·최고·최저 가격을 독립 Decimal 계산과 대조하여 통과했습니다. 결측·0·음수·숫자 변환 실패·NaN·무한대 가격의 제외 검사도 통과했습니다. Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
 
-실제 배치 실행 화면은 EC2 `de9-q7` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Bronze·Silver 객체 목록은 EC2와 로컬 `.runtime/q7/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출 PNG 3개는 실제 터미널 및 AWS S3 웹 콘솔에서 별도로 촬영해야 합니다.
+실제 배치 실행 화면은 EC2 `de9-q7` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Bronze·Silver 객체 목록은 EC2와 로컬 `.runtime/q7/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출 PNG 3개는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 지정 경로에 저장했습니다. 실행 지문·20행 집계·정상 종료와 Bronze/Silver의 실제 객체 목록을 확인했습니다.
 
 공식 참고: [Spark 3.5 계열 Kafka 배치 읽기와 원본 열 구조](https://spark.apache.org/docs/3.5.6/structured-streaming-kafka-integration.html#creating-a-kafka-source-for-batch-queries). 실행 라이브러리는 기존 환경과 동일한 Spark 3.5.3입니다.
+
+## Q8 — 도시별 가격 변동률과 Gold
+
+`part2-price/price_change.py`는 Q7이 S3에 저장한 `silver/product-prices/` Parquet를 읽는 Spark 배치 프로그램입니다. Kafka Producer나 Q7을 다시 실행하지 않고 현재 Silver를 사용합니다. 2016년 11·12월을 선택하고 도시·품목마다 각 달의 가격이 정확히 한 행씩 존재하는지 검사합니다. 누락 월·중복 월·유효하지 않은 가격은 오류로 처리해 잘못된 Gold 저장을 막습니다.
+
+윈도우는 S3 폴더가 아니라 Spark가 같은 도시·품목의 행들을 묶고 월 순서로 계산하도록 지정한 코드 객체입니다. `Window.partitionBy("market", "item_name").orderBy("year", "month")`와 `lag()`로 12월 행에서 11월 가격을 참조합니다. 12월 필터는 반드시 lag 계산 뒤에 적용합니다. 두 달을 따로 읽어 조인하지 않습니다.
+
+변동률은 `(12월 가격 - 11월 가격) / 11월 가격 × 100`입니다. 계산 중 가격을 십진수로 다루고 Spark `round(..., 2)`로 HALF_UP 반올림합니다. 예를 들어 100에서 60으로 하락하면 -40.00%이며, 100에서 110으로 상승한 +10.00%보다 변동 폭이 큽니다. 도시별 두 번째 윈도우에서 반올림한 변동률의 절대값 내림차순으로 `rank()`를 계산합니다. 동률은 같은 순위이며 다음 순위는 건너뜁니다(1·2·2·4). 제공 원본에는 도시별 1위 동률이 없습니다.
+
+Gold는 `gold/grocery_price_change/`에 Parquet 스냅샷으로 저장합니다. 1위만 저장하지 않고 **도시 10곳 × 품목 10종의 전체 100행**을 저장하며, 콘솔에는 도시명 순으로 1위 10행을 출력합니다. 열은 다음 6개입니다.
+
+| 열 | 실제 저장 타입·값 |
+|---|---|
+| `market` | 도시명 문자열 |
+| `item_name` | 품목명 문자열 |
+| `price_nov` | 2016년 11월 가격, double |
+| `price_dec` | 2016년 12월 가격, double |
+| `change_rate` | 부호를 유지한 백분율, decimal(18,2) |
+| `change_rank` | 도시 내 절대 변동률 순위, int |
+
+출력은 이 Gold 경로만 `overwrite`하므로 반복 실행 시 전체 스냅샷을 교체합니다. Silver·Bronze·전기차 Gold는 변경하지 않습니다. 덮어쓰기는 원자적 트랜잭션이 아니며, 실패하면 출력 상태를 확인한 뒤 재실행합니다.
+
+### Q8 사전 계산과 실행
+
+아래는 원본 CSV를 Python Decimal로 독립 계산한 **실행 전 예상 1위**입니다. 실제 Spark 출력으로 가장하지 않으며, 저장된 Gold는 별도 검증 프로그램으로 전체 100행을 대조합니다.
+
+| market | item_name | change_rate (%) |
+|---|---|---:|
+| Ahmedabad | Tomatoes | -2.43 |
+| Bhopal | Potatoes | -31.81 |
+| Chennai | Potatoes | -14.51 |
+| Delhi | Potatoes | -38.33 |
+| Hyderabad | Tomatoes | -30.18 |
+| Jaipur | Potatoes | -38.03 |
+| Kanpur | Potatoes | -47.57 |
+| Lucknow | Potatoes | -42.72 |
+| Mumbai | Tomatoes | -24.75 |
+| Patna | Onions | 32.95 |
+
+코드를 커밋·push한 뒤 EC2에서 pull하고 호스트 셸에서 실행합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q8.sh
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  spark-submit --conf spark.driver.host=airflow /opt/de9/scripts/verify-q8.py
+```
+
+`scripts/check-q8-transform.py`는 메모리 입력만 사용하여 뒤섞인 월 순서에서의 전월 참조, 상승·하락 절대값 순위, 동률, 양수·음수 반올림 경계와 누락·중복 월을 검사합니다. Kafka/S3 접근이나 쓰기는 하지 않습니다. `scripts/verify-q8.py`는 실제 S3 Gold를 읽어 원본 CSV의 Decimal 독립 계산과 100행 전체의 전월·당월 가격, 반올림한 변동률, 동률 순위 및 6개 열을 대조합니다. 실제 1위가 도시별 하나씩 10행인지도 확인합니다.
+
+실제 EC2의 Spark 3.5.3에서 위 메모리 입력 검사를 수행하여 전월 참조·절대값 순위·동률·양수/음수 반올림 경계·누락/중복 월·0원 제외 검사가 통과했습니다. 이는 실제 Silver 읽기와 Gold 적재 완료를 의미하지 않습니다.
+
+실행 로그는 `.runtime/q8/change.log`, Spark 진단은 `.runtime/q8/spark-stderr.log`에 남습니다. 원본 CSV와 실행 기록은 공개 Git에서 제외합니다.
+
+### Q8 제출 캡처
+
+`part2-price/capture/Q8/`에 다음 두 파일을 저장합니다.
+
+| 파일 | 필요한 실제 화면 |
+|---|---|
+| `change_rank_top1.png` | EC2 호스트 실행 지문과 도시명 순 1위 10행, 두 달 가격·변동률·순위, Gold 전체 100행 저장 결과 |
+| `s3_gold_price.png` | S3 웹 콘솔의 본인 버킷 `gold/grocery_price_change/` 경로와 실제 Parquet 객체 목록 |
+
+공식 참고: Spark 3.5 계열의 [lag](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.lag.html), [rank](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.rank.html), [round](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.round.html). 실제 실행 환경은 Spark 3.5.3입니다.
 
 ## 참고
 

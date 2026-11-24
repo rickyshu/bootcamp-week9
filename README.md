@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1~Q5 구현·실제 실행·검증**입니다. Q5의 제출용 화면 캡처는 별도로 완료해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q5 구현·실제 실행·검증 및 캡처를 완료**했고, **Q6 코드를 준비**했습니다. Q6은 아직 실제 전송 전입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -349,6 +349,50 @@ Gold 경로에는 8개 행을 담은 Parquet 1개와 `_SUCCESS`가 생성됐습�
 현재 입력을 모두 처리한 Q5 스트리밍 쿼리는 정상 종료했습니다. Airflow·Spark worker의 OOMKilled 값은 false였습니다. 실제 실행 화면은 EC2의 `de9-q5` tmux 세션에, 로그·검증 결과·Gold 객체 목록·Slack ACK 기록·Athena SQL 및 결과 JSON은 EC2와 로컬 `.runtime/q5/`에 보존합니다. 이 기록과 비공개 Webhook 설정은 공개 Git에서 제외합니다. 캡처를 위해 알림 전송을 재실행하지 않습니다.
 
 Slack 연결 자체는 무료 플랜의 앱 연결 범위에서 사용하며 EC2·S3·Athena 사용료는 별도입니다. 공식 참고: [Slack Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/), [Athena Parquet 외부 테이블](https://docs.aws.amazon.com/athena/latest/ug/parquet-serde.html).
+
+## Q6 — 식료품 가격 Producer
+
+`part2-price/price_producer.py`는 EC2의 기존 Airflow 컨테이너 안에서 실행하는 Python 프로그램입니다. 입력 파일 `data/india_grocery_prices.csv`의 원본 200행을 읽어 `product-prices` 토픽에 JSON 메시지로 보냅니다. CSV는 수정하지 않고 공개 Git에서도 제외합니다. `year`·`month`는 JSON 정수, `price`는 JSON 실수이며 나머지 네 필드는 문자열입니다. CSV 행 순서를 유지합니다.
+
+`RegionPartitioner`는 Python 클래스이며, 프로그램 시작 시 만든 객체를 `KafkaProducer(partitioner=...)`에 전달합니다. kafka-python이 도시명을 UTF-8 바이트로 직렬화한 뒤 이 객체를 호출합니다. 객체가 반환한 파티션 번호를 Producer가 사용하므로 `send()`에서 파티션 번호를 직접 지정하지 않습니다. 등록되지 않은 도시는 kafka-python의 `DefaultPartitioner`로 넘깁니다. 알려진 도시는 leader가 일시적으로 없어도 다른 권역으로 보내지 않습니다.
+
+| 파티션 | 도시 | 원본에서 계산한 예상 건수 |
+|---|---|---:|
+| 0 | Delhi, Jaipur, Lucknow, Kanpur | 80 |
+| 1 | Mumbai, Ahmedabad, Bhopal | 60 |
+| 2 | Hyderabad, Chennai, Patna | 60 |
+
+### Q6 실행과 검증
+
+로컬 파티셔너 검사는 Kafka에 연결하지 않습니다. 실제 라이브러리의 기본 파티셔너와 미등록 도시의 선택 결과를 비교하고, 10개 도시의 권역·leader 부재 시 동작·`send(partition=...)` 미사용과 CSV 예상 건수를 검사합니다.
+
+```bash
+python scripts/check-q6-local.py
+python part2-price/price_producer.py --validate-only
+```
+
+코드를 커밋·push하고 EC2에서 pull한 뒤, 원본 CSV를 EC2의 같은 `data/` 경로에 준비하여 호스트 셸에서 실행합니다. 기존 EV 토픽·컨슈머 그룹·S3 출력은 유지합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q6.sh
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  python /opt/de9/scripts/verify-q6.py
+```
+
+실행 스크립트가 토픽을 파티션 3개·복제 2로 생성하고 실제 설정을 출력합니다. Producer는 설정과 시작·끝 오프셋을 검사한 뒤 새 빈 토픽일 때만 전송합니다. ACK를 받은 건수만 파티션별로 집계하며 `try...finally`에서 flush와 close를 수행합니다. 멱등 전송은 같은 Producer 세션의 내부 재시도 중복을 막으며, 프로그램 재실행 자체를 중복 제거하지는 않습니다. 재실행이 필요하더라도 토픽을 자동 삭제하지 않습니다. 먼저 원인 및 Q7 이후 출력과의 관계를 확인해야 합니다.
+
+`verify-q6.py`는 그룹 가입·오프셋 커밋 없이 실제 토픽을 읽습니다. 원본 200행의 모든 필드 값과 중복 횟수, 숫자 타입, 도시 키, 권역별 파티션과 80·60·60건을 독립 대조합니다. 실행 로그는 EC2 `.runtime/q6/producer.log`에 남습니다. 공개 코드만으로는 실제 실행 증빙을 대신하지 않습니다.
+
+### Q6 제출 캡처
+
+`part2-price/capture/Q6/`에 실제 화면을 저장합니다.
+
+| 파일 | 필요한 화면 |
+|---|---|
+| `producer_run.png` | EC2 호스트 실행 지문(date·hostname·공개 커밋 SHA), 토픽 생성·describe(파티션 3·복제 2), Producer 파티션별 ACK와 총 200건 |
+| `kafka_ui_partitions.png` | Kafka UI의 `product-prices` 토픽명, 총 200건 및 파티션 0=80·1=60·2=60이 함께 보이는 화면 |
+
+공식 참고: [kafka-python KafkaProducer의 partitioner 인자](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
 
 ## 참고
 

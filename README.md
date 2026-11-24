@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1~Q4 구현·실행과 Q5 Slack 알림·Gold·Athena 코드 준비**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 범위는 **Q1~Q5 구현·실제 실행·검증**입니다. Q5의 제출용 화면 캡처는 별도로 완료해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -305,7 +305,7 @@ python3 scripts/register-q5-athena.py --bucket de9-lhi-947554757698
 
 Athena 등록 스크립트는 EC2 호스트의 AWS CLI를 호출하므로 EC2 IAM 역할로 인증합니다. `de9_lhi` 데이터베이스와 실제 Gold 경로를 가리키는 외부 테이블 `ev_charging_agg`를 등록한 다음 워크그룹 `de9-lhi`에서 SELECT를 실행합니다. 쿼리 실행 ID와 결과·조회 SQL은 `.runtime/q5/athena/`에 남고, 결과를 원본 CSV의 예상 집계와 대조합니다. 테이블 등록은 데이터 복사가 아니라 S3 파일의 위치·열 구조를 Glue Data Catalog에 기록하는 작업입니다. Athena가 SELECT 시 실제 Parquet를 읽습니다.
 
-원본 CSV에서 사전 계산한 예상치는 **이상 세션 18건·설치구역 8개**입니다. 아직 실제 전송·Gold·Athena 실행 결과로 검증한 수치는 아닙니다. 본문에 별도 실제 실행 기록을 추가하기 전에는 이 문항이 실행 완료됐다고 간주하지 않습니다.
+원본 CSV에서 사전 계산한 예상치는 **이상 세션 18건·설치구역 8개**입니다. 아래 실제 실행에서 별도 검증 코드로 같은 결과임을 확인했습니다.
 
 ### Q5 캡처
 
@@ -322,6 +322,31 @@ SELECT location_group, anomaly_count
 FROM de9_lhi.ev_charging_agg
 ORDER BY location_group;
 ```
+
+### Q5 실제 실행 확인 기록
+
+2026-11-24 18:35:41 한국 시각(09:35:41 UTC)에 공개 커밋 `da72abb`로 동일 EC2에서 실행했습니다. Q4의 실제 Silver 파일을 스트리밍 입력으로 읽어 3개 배치에서 7·3·8건의 이상 세션을 감지했습니다. `Week9 EV Alerts` 앱을 통해 본인 워크스페이스 `bootcamp-week9-lhi`의 `#bootcamp-week9-lhi-전체` 채널로 3개 메시지를 전송했고, 모두 Slack의 `200 / ok` 응답과 S3 ACK 기록을 확인했습니다. 실제 Slack 웹 채널에도 앱이 보낸 세션 정보가 표시되는 것을 확인했습니다. 테스트 문구나 수동 입력 메시지로 증빙을 대신하지 않았습니다.
+
+Gold의 실제 Parquet를 다시 읽고 Slack ACK 기록에 담긴 18개 세션의 네 필드·중복 횟수까지 원본 CSV의 독립 계산과 대조했습니다. 누락·중복 없이 통과했으며 최종 Gold 결과는 다음과 같습니다. 이 수치는 Q4의 전체 충전 건수가 아니라 `idleSec > 5400`인 이상 세션 건수입니다.
+
+| location_group | anomaly_count |
+|---|---:|
+| PALO ALTO CA / BRYANT | 1 |
+| PALO ALTO CA / CAMBRIDGE | 4 |
+| PALO ALTO CA / HAMILTON | 1 |
+| PALO ALTO CA / HIGH | 2 |
+| PALO ALTO CA / MPL | 4 |
+| PALO ALTO CA / RINCONADA LIB 1 | 1 |
+| PALO ALTO CA / TED THOMPSON | 1 |
+| PALO ALTO CA / WEBSTER | 4 |
+
+Gold 경로에는 8개 행을 담은 Parquet 1개와 `_SUCCESS`가 생성됐습니다. Athena에서 `de9_lhi.ev_charging_agg`를 실제 등록하고 SELECT를 수행해 8개 행·합계 18건이 원본 계산과 일치함을 확인했습니다.
+
+- 데이터베이스 등록 QueryExecutionId: `c256edf3-2795-4b33-9dee-c56a93d671de`
+- 외부 테이블 등록 QueryExecutionId: `39a8fdaf-4827-4d01-a350-813188befc41`
+- 검증 SELECT QueryExecutionId: `63b21fa8-2131-4d1c-9094-fb109f370719`
+
+현재 입력을 모두 처리한 Q5 스트리밍 쿼리는 정상 종료했습니다. Airflow·Spark worker의 OOMKilled 값은 false였습니다. 실제 실행 화면은 EC2의 `de9-q5` tmux 세션에, 로그·검증 결과·Gold 객체 목록·Slack ACK 기록·Athena SQL 및 결과 JSON은 EC2와 로컬 `.runtime/q5/`에 보존합니다. 이 기록과 비공개 Webhook 설정은 공개 Git에서 제외합니다. 캡처를 위해 알림 전송을 재실행하지 않습니다.
 
 Slack 연결 자체는 무료 플랜의 앱 연결 범위에서 사용하며 EC2·S3·Athena 사용료는 별도입니다. 공식 참고: [Slack Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/), [Athena Parquet 외부 테이블](https://docs.aws.amazon.com/athena/latest/ug/parquet-serde.html).
 

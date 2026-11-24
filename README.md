@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q5 구현·실제 실행·검증 및 캡처를 완료**했고, **Q6 코드를 준비**했습니다. Q6은 아직 실제 전송 전입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q5 구현·실제 실행·검증 및 캡처를 완료**했고, **Q6 구현·실제 실행·검증을 완료**했습니다. Q6의 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -391,6 +391,14 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 |---|---|
 | `producer_run.png` | EC2 호스트 실행 지문(date·hostname·공개 커밋 SHA), 토픽 생성·describe(파티션 3·복제 2), Producer 파티션별 ACK와 총 200건 |
 | `kafka_ui_partitions.png` | Kafka UI의 `product-prices` 토픽명, 총 200건 및 파티션 0=80·1=60·2=60이 함께 보이는 화면 |
+
+### Q6 실제 실행 확인 기록
+
+2026-11-24 19:11:01 한국 시각(10:11:01 UTC)에 공개 커밋 `e426d5743da8fab9bef4ef47677394e13c056dcc`로 기존 EC2 `ip-172-31-11-232`에서 실행했습니다. `product-prices`를 새로 생성해 파티션 3개·복제 2 및 모든 ISR을 확인했고, 시작·끝 오프셋이 모두 0인 상태에서 원본 CSV 200행을 한 번 전송했습니다. 원본 SHA256은 `b6f6faa8c513b1b4721b0bc421f8b31ec00340fad96b84031c8dc6356d6649ca`입니다.
+
+브로커 ACK를 받은 실제 건수는 파티션 0=80, 1=60, 2=60이며, Producer는 flush·close 후 정상 종료했습니다. 별도 검증 프로그램이 실제 Kafka 메시지 전체를 읽어 원본 CSV의 모든 값·중복 횟수, JSON 숫자 타입, market 키와 권역별 파티션을 독립 대조하여 통과했습니다. 검증 시 컨슈머 그룹 가입과 오프셋 커밋은 하지 않았습니다.
+
+실제 실행 화면은 EC2 `de9-q6` tmux 세션에 남아 있습니다. 토픽 생성·전송 로그 `producer.log`, 검증 결과 `verify.log`, 실행 지문을 포함한 터미널 기록 `terminal.txt`는 EC2와 로컬 `.runtime/q6/`에 보존하며 공개 Git에서 제외합니다. 캡처를 위해 Producer를 다시 실행하지 않습니다. Q6의 두 제출 PNG는 실제 화면에서 별도로 촬영해야 합니다.
 
 공식 참고: [kafka-python KafkaProducer의 partitioner 인자](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
 

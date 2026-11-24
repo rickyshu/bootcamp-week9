@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q7 구현·실제 실행·검증 및 캡처를 완료**했고, **Q8 코드를 준비**했습니다. Q8의 실제 Silver→Gold 실행은 아직 하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q7 구현·실제 실행·검증 및 캡처를 완료**했고, **Q8 구현·실제 실행·검증을 완료**했습니다. Q8 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -515,6 +515,14 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 |---|---|
 | `change_rank_top1.png` | EC2 호스트 실행 지문과 도시명 순 1위 10행, 두 달 가격·변동률·순위, Gold 전체 100행 저장 결과 |
 | `s3_gold_price.png` | S3 웹 콘솔의 본인 버킷 `gold/grocery_price_change/` 경로와 실제 Parquet 객체 목록 |
+
+### Q8 실제 실행 확인 기록
+
+2026-11-24 19:35:09 한국 시각(10:35:09 UTC)에 공개 커밋 `b3e4cb691796c190e5b151c578d246298686b436`로 기존 EC2 `ip-172-31-11-232`에서 실행했습니다. Spark standalone 실행 ID는 `app-20261124103515-0006`입니다. 실제 Q7 Silver를 읽어 윈도우 함수로 계산하고, Gold에 도시×품목 전체 100행·6개 열을 저장한 뒤 도시명 순으로 1위 10행을 출력하고 정상 종료했습니다.
+
+실제 `gold/grocery_price_change/`에는 Parquet 1개(3,722 bytes)와 `_SUCCESS`가 생성됐습니다. 별도의 읽기 전용 검증 프로그램이 저장 파일을 다시 읽어 원본 CSV의 Decimal 독립 계산과 100행 전체의 두 달 가격·소수 둘째 자리 반올림 변동률·동률 순위를 대조하여 통과했습니다. 도시별 1위 10행은 위 사전 계산 표와 모두 일치했습니다. `change_rate`의 실제 물리 타입은 `decimal(18,2)`이며 Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
+
+실제 실행 화면은 EC2 `de9-q8` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Gold 객체 목록은 EC2와 로컬 `.runtime/q8/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출용 `change_rank_top1.png`와 `s3_gold_price.png`는 실제 터미널 및 AWS S3 웹 콘솔에서 별도로 촬영해야 합니다.
 
 공식 참고: Spark 3.5 계열의 [lag](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.lag.html), [rank](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.rank.html), [round](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.round.html). 실제 실행 환경은 Spark 3.5.3입니다.
 

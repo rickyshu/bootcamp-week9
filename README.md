@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 범위는 **Q1 실행 환경 구성, Q2·Q3 전기차 Producer/Consumer와 Q4 Spark 스트리밍 코드**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 범위는 **Q1~Q4 구현·실행과 Q5 Slack 알림·Gold·Athena 코드 준비**입니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -277,6 +277,53 @@ tmux attach -t de9-q4
 SSH 재접속 후 창을 크게 열고 글자 크기를 줄여 실행 지문과 3개 Batch 표를 함께 촬영합니다. 필요하면 Ctrl+B를 누르고 손을 뗀 뒤 `[`로 스크롤 모드에 들어가 PageUp으로 실제 실행 화면 위쪽을 봅니다. `q`로 스크롤 모드를 끝내고 Ctrl+B를 누른 뒤 D로 화면에서 분리합니다. tmux는 EC2 중지 후에는 유지되지 않으므로 캡처를 먼저 완료합니다. 제출용 세 이미지의 촬영·저장은 별도 단계이며 위 검증 기록만으로 캡처 완료를 의미하지 않습니다.
 
 공식 동작 참고: [Spark 3.5 계열 Structured Streaming의 foreachBatch·체크포인트](https://spark.apache.org/docs/3.5.7/structured-streaming-programming-guide.html), [Kafka 입력·커넥터 배포](https://spark.apache.org/docs/3.5.7/structured-streaming-kafka-integration.html). 이 과제의 실제 설치 버전과 커넥터는 3.5.3으로 고정합니다.
+
+## Q5: 유휴 시간 이상 감지와 Slack·Gold·Athena 연결
+
+Q5는 Q4가 실제 S3에 저장한 Silver Parquet 파일을 입력으로 사용합니다. `part1-ev/charger_alerts.py`의 `spark.readStream`이 새 파일을 읽고, Spark executor가 `idleSec > 5400`인 행을 필터링합니다. 원본 CSV를 직접 읽어 감지 결과를 대신하지 않습니다. 이미 존재하는 Silver 3개 파일도 첫 실행의 입력에 포함됩니다. `availableNow=True` 트리거는 현재 파일을 파일당 한 마이크로배치로 처리하고 정상 종료하며, 다시 실행할 때는 Q5의 체크포인트 다음부터 읽습니다. Q4 체크포인트나 Kafka·Q3 그룹은 바꾸지 않습니다.
+
+같은 이상 행에서 두 쿼리를 실행합니다. 첫 쿼리의 `foreachBatch` 콜백은 driver 프로세스에서 Slack Incoming Webhook URL로 JSON HTTP POST를 보냅니다. 이는 Python 라이브러리 내부 호출만으로 끝나는 작업이 아니라 Slack 서버에 실제 네트워크 요청을 보내는 동작입니다. 메시지는 배치별로 묶되, 각 세션의 `stationName`, `locationGroup`, `startTime`, `idleSec`를 모두 포함합니다. 제공된 2017년 데이터 처리 결과임을 메시지에 표시합니다.
+
+Webhook URL은 해당 Slack 채널로 메시지를 보낼 수 있는 비밀 주소입니다. 로컬과 EC2의 `.private/slack-webhook`에 권한 600으로 별도 보관하고 공개 Git·최종 ZIP·캡처에서 제외합니다. 실행 스크립트는 표준 입력으로 URL을 컨테이너의 driver 전용 파일에 복사하고 종료 시 그 임시 파일을 지웁니다. URL을 명령 인수나 로그에 출력하지 않습니다. Slack 앱은 `Week9 EV Alerts`, 권한은 특정 채널에 메시지를 보내는 `incoming-webhook`입니다. 앱 공개 배포·채널 대화 읽기 권한은 필요하지 않습니다.
+
+Slack HTTP 응답 `200`과 본문 `ok`를 확인한 후 `checkpoints/q5/alerts-sent/batch-....json`에 보낸 4개 필드와 ACK를 기록합니다. 같은 배치의 기록이 있으면 재전송을 건너뜁니다. **Slack 전송과 S3 기록은 하나의 원자적 트랜잭션이 아닙니다.** ACK 직후 기록 전에 장애가 나면 재실행으로 중복이 생길 수 있습니다. 429의 Retry-After만 제한적으로 재시도하며 응답 불명확·기타 실패는 중단합니다. 이때는 Slack 수신 상태를 확인한 뒤 복구해야 합니다. 체크포인트·ACK 기록을 지우고 다시 실행하지 않습니다.
+
+두 번째 쿼리는 설치구역별 이상 건수를 상태로 누적합니다. complete 모드의 `foreachBatch`에서 현재 전체 집계를 `s3://버킷/gold/ev_charging_agg/`의 Parquet로 덮어씁니다. Gold에는 `location_group` 문자열과 `anomaly_count` BIGINT 두 열이 있으며, 이상 건수가 있는 설치구역만 포함합니다. 실행 중의 덮어쓰기는 원자적 테이블 교체가 아니므로 스트림 종료 후 Gold 검증·Athena 조회를 수행합니다.
+
+### EC2 실행과 실제 검증
+
+Q5 코드를 커밋·push한 뒤 EC2에서 pull하고, Q4 작업이 종료됐는지 확인합니다. 원본 CSV·Silver·Q4 출력은 그대로 둡니다. EC2에 비공개 Webhook 설정이 준비된 후 아래를 실행합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q5.sh
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  spark-submit --conf spark.driver.host=airflow /opt/de9/scripts/verify-q5.py
+python3 scripts/register-q5-athena.py --bucket de9-lhi-947554757698
+```
+
+`verify-q5.py`는 실제 Gold Parquet와 S3의 Slack ACK 기록을 읽어 CSV에서 독립 계산한 이상 세션·설치구역별 건수와 대조합니다. ACK는 Slack 서버가 요청을 받아들였다는 기록이며, 과제에서 요구하는 Slack 수신 화면 캡처를 대신하지 않습니다.
+
+Athena 등록 스크립트는 EC2 호스트의 AWS CLI를 호출하므로 EC2 IAM 역할로 인증합니다. `de9_lhi` 데이터베이스와 실제 Gold 경로를 가리키는 외부 테이블 `ev_charging_agg`를 등록한 다음 워크그룹 `de9-lhi`에서 SELECT를 실행합니다. 쿼리 실행 ID와 결과·조회 SQL은 `.runtime/q5/athena/`에 남고, 결과를 원본 CSV의 예상 집계와 대조합니다. 테이블 등록은 데이터 복사가 아니라 S3 파일의 위치·열 구조를 Glue Data Catalog에 기록하는 작업입니다. Athena가 SELECT 시 실제 Parquet를 읽습니다.
+
+원본 CSV에서 사전 계산한 예상치는 **이상 세션 18건·설치구역 8개**입니다. 아직 실제 전송·Gold·Athena 실행 결과로 검증한 수치는 아닙니다. 본문에 별도 실제 실행 기록을 추가하기 전에는 이 문항이 실행 완료됐다고 간주하지 않습니다.
+
+### Q5 캡처
+
+`part1-ev/capture/Q5/`에 다음 3개 파일을 보관합니다. 캡처는 사용자가 실제 화면에서 촬영하고, Webhook 설정·토큰 화면은 찍지 않습니다.
+
+| 파일 | 필요한 실제 화면 |
+|---|---|
+| `slack_alert.png` | 본인 워크스페이스의 채널명·Week9 EV Alerts 앱·실제 수신 메시지. 네 필드와 `idleSec > 5400`이 보이게 촬영 |
+| `s3_gold.png` | AWS S3 웹 콘솔의 `gold/ev_charging_agg/` 경로와 Parquet 객체 목록 |
+| `athena_query_ev.png` | Athena 웹 콘솔 Query Editor, 워크그룹 `de9-lhi`·데이터베이스 `de9_lhi`, 아래 SELECT와 실제 결과 |
+
+```sql
+SELECT location_group, anomaly_count
+FROM de9_lhi.ev_charging_agg
+ORDER BY location_group;
+```
+
+Slack 연결 자체는 무료 플랜의 앱 연결 범위에서 사용하며 EC2·S3·Athena 사용료는 별도입니다. 공식 참고: [Slack Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/), [Athena Parquet 외부 테이블](https://docs.aws.amazon.com/athena/latest/ug/parquet-serde.html).
 
 ## 참고
 

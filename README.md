@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q5 구현·실제 실행·검증 및 캡처를 완료**했고, **Q6 구현·실제 실행·검증을 완료**했습니다. Q6의 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q6 구현·실제 실행·검증 및 캡처를 완료**했고, **Q7 코드를 준비**했습니다. Q7의 실제 Kafka→S3 배치 실행은 아직 하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -398,9 +398,47 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 브로커 ACK를 받은 실제 건수는 파티션 0=80, 1=60, 2=60이며, Producer는 flush·close 후 정상 종료했습니다. 별도 검증 프로그램이 실제 Kafka 메시지 전체를 읽어 원본 CSV의 모든 값·중복 횟수, JSON 숫자 타입, market 키와 권역별 파티션을 독립 대조하여 통과했습니다. 검증 시 컨슈머 그룹 가입과 오프셋 커밋은 하지 않았습니다.
 
-실제 실행 화면은 EC2 `de9-q6` tmux 세션에 남아 있습니다. 토픽 생성·전송 로그 `producer.log`, 검증 결과 `verify.log`, 실행 지문을 포함한 터미널 기록 `terminal.txt`는 EC2와 로컬 `.runtime/q6/`에 보존하며 공개 Git에서 제외합니다. 캡처를 위해 Producer를 다시 실행하지 않습니다. Q6의 두 제출 PNG는 실제 화면에서 별도로 촬영해야 합니다.
+실제 실행 화면은 EC2 `de9-q6` tmux 세션에 남아 있습니다. 토픽 생성·전송 로그 `producer.log`, 검증 결과 `verify.log`, 실행 지문을 포함한 터미널 기록 `terminal.txt`는 EC2와 로컬 `.runtime/q6/`에 보존하며 공개 Git에서 제외합니다. 캡처를 위해 Producer를 다시 실행하지 않습니다. Q6의 두 제출 PNG는 실제 화면에서 촬영해 저장했습니다. `producer_run.png`에는 실행 지문·토픽 생성·파티션별 ACK·SUCCESS가, `kafka_ui_partitions.png`에는 실제 토픽의 200건 및 80·60·60건이 보입니다.
 
 공식 참고: [kafka-python KafkaProducer의 partitioner 인자](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
+
+## Q7 — 가격 데이터 Bronze/Silver 배치
+
+`part2-price/price_batch.py`는 기존 Spark master·worker에서 실행하는 유한한 배치 프로그램입니다. `spark.read.format("kafka")`로 `product-prices`의 처음부터 실행 시점의 끝 오프셋까지 읽습니다. 새 메시지를 기다리는 스트리밍 쿼리를 만들지 않으며 처리가 끝나면 Spark를 종료합니다. Q6 Producer를 재실행할 필요가 없습니다.
+
+처음 읽은 Kafka DataFrame은 처리 중 메모리에 캐시합니다. Bronze는 S3 `bronze/product-prices/`의 Parquet 파일에 메시지의 원본 `key`·`value` 바이트를 그대로 저장하며, `topic`·`partition`·`offset`·`timestamp`로 실제 Kafka 레코드를 식별할 수 있습니다. Bronze는 파싱된 Silver와 달리 JSON의 공백·키 순서도 보존합니다.
+
+Silver는 명시한 JSON 스키마로 메시지를 파싱하고 `price`를 `double` 실수형으로 바꿉니다. 가격이 없거나 0 이하이면 제외하며, 숫자로 변환할 수 없는 값·NaN·무한대도 제외합니다. 유효한 7개 필드를 S3 `silver/product-prices/`의 Parquet 파일에 저장합니다. 제공 원본에는 제외 대상이 없어 **예상 Bronze·Silver 행 수는 각각 200행**입니다. 이는 실행 전 예상치이며 실제 파일 검증은 별도로 수행합니다.
+
+저장 후 Silver의 `item_name`·`month`별 평균·최고·최저 가격을 계산하여 품목명·월 순으로 20개 그룹을 모두 콘솔에 출력합니다. 저장 모드는 각 가격 경로의 전체 스냅샷을 교체하는 `overwrite`이므로, Q9에서 전체 토픽을 다시 읽어도 단순 append 중복을 만들지 않습니다. S3 두 경로의 교체는 하나의 원자적 트랜잭션이 아니므로 작업 중간에 실패하면 완료 상태와 양쪽 출력을 확인한 뒤 재실행해야 합니다. 전기차 경로와 Kafka 원본은 변경하지 않습니다.
+
+### Q7 실행과 검증
+
+코드를 커밋·push한 뒤 EC2에서 pull하고 호스트 셸에서 실행합니다. 기존 컨테이너의 S3 접근은 EC2 IAM 역할을 사용합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q7.sh
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  spark-submit --conf spark.driver.host=airflow /opt/de9/scripts/verify-q7.py
+```
+
+`scripts/check-q7-transform.py`는 메모리에서만 만든 입력으로 정제 제외 규칙과 집계 계산을 검사합니다. Kafka·S3에는 테스트 데이터를 쓰지 않습니다. `scripts/verify-q7.py`는 실제 S3 파일을 읽고 원본 CSV의 모든 값·중복 횟수, 실제 Kafka의 원본 key/value 바이트와 오프셋, Silver 실수형 스키마 및 20개 그룹의 평균·최고·최저 가격을 독립 계산과 대조합니다. 검증은 읽기 전용이며 Kafka 그룹 가입·커밋·S3 쓰기를 하지 않습니다.
+
+사전 검사에서는 실제 EC2의 Spark 3.5.3으로 메모리 입력만 사용하여 정제·집계 함수 검사를 수행했고 통과했습니다. 이 검사는 실제 Kafka→S3 적재 완료를 의미하지 않습니다.
+
+실행 출력은 EC2 `.runtime/q7/batch.log`, Spark 진단은 `.runtime/q7/spark-stderr.log`에 남습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다.
+
+### Q7 제출 캡처
+
+`part2-price/capture/Q7/`에 다음 3개 파일을 저장합니다. S3 캡처는 사용자가 실제 AWS 웹 콘솔에서 촬영합니다.
+
+| 파일 | 필요한 화면 |
+|---|---|
+| `batch_console.png` | EC2 호스트 실행 지문과 spark-submit 실행 결과, 20개 품목·월별 평균·최고·최저 가격 집계 |
+| `s3_bronze_price.png` | S3 웹 콘솔의 본인 버킷 `bronze/product-prices/` 경로와 실제 객체 목록 |
+| `s3_silver_price.png` | S3 웹 콘솔의 본인 버킷 `silver/product-prices/` 경로와 실제 Parquet 객체 목록 |
+
+공식 참고: [Spark 3.5 계열 Kafka 배치 읽기와 원본 열 구조](https://spark.apache.org/docs/3.5.6/structured-streaming-kafka-integration.html#creating-a-kafka-source-for-batch-queries). 실행 라이브러리는 기존 환경과 동일한 Spark 3.5.3입니다.
 
 ## 참고
 

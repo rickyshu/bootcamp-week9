@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q8 구현·실제 실행·검증 및 캡처를 완료**했고, **Q9 코드를 준비**했습니다. Q9의 실제 스케줄 실행과 Athena 교차 검증은 아직 수행하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q8 구현·실제 실행·검증 및 캡처를 완료**했고, **Q9 구현·스케줄 2회 성공·Athena/XCom 검증을 완료**했습니다. Q9 DAG는 일시정지했으며 제출용 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -583,6 +583,19 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 | `airflow_xcom.png` | 성공 Run의 Task 3 `query_top1` XCom `return_value` 쿼리 ID |
 | `athena_recent_queries.png` | 워크그룹 `de9-lhi` 최근 쿼리에서 위 XCom과 같은 실행 ID의 행 |
 | `athena_query_price.png` | 같은 실행 ID의 Athena SQL·실제 결과 10행과 데이터베이스 `de9_lhi` |
+
+### Q9 실제 실행 확인 기록
+
+2026-11-25 공개 커밋 `aa35277`을 EC2에서 pull하고 실제 Airflow scheduler로 다음 두 Run을 실행했습니다. 수동 Trigger나 `dags test`를 성공 횟수에 포함하지 않았습니다. 신규 DAG를 메타데이터에 반영한 뒤 unpause했으며, 초기 실행 지연으로 Run ID의 논리 날짜와 실제 시작 시각이 다릅니다. 두 논리 구간은 10분 간격이고 실제 실행 시간은 겹치지 않았습니다.
+
+| Run ID | 실제 시작→종료 (한국 시각) | 결과 | Task 3 XCom / Athena QueryExecutionId |
+|---|---|---|---|
+| `scheduled__2026-11-25T03:30:00+00:00` | 12:47:42 → 12:49:15 | 세 Task 모두 success | `649ee5e4-03e8-43ec-b4d6-9d3d3a95a781` |
+| `scheduled__2026-11-25T03:40:00+00:00` | 12:50:01 → 12:51:33 | 세 Task 모두 success | `472271b9-d2c5-43a0-a589-7e858a349ae7` |
+
+두 SELECT 모두 실제 워크그룹 `de9-lhi`에서 성공했습니다. Airflow 메타데이터의 Task 3 `return_value`와 Athena 실행 ID가 일치하고, 반환된 각 10행의 전월 가격·당월 가격·변동률·순위가 원본 CSV의 독립 Decimal 계산과 일치함을 `verify-q9.py`로 확인했습니다. 검증 시 `scheduled_success_count=2`, `paused=true`, 실행 중이거나 대기 중인 Run 없음도 확인했습니다. 실행 결과를 수동으로 DB에 기록하거나 XCom을 직접 만들어 넣지 않았습니다. Q9가 새로 저장한 Gold도 `verify-q8.py`로 다시 읽어 전체 100행·6개 열·변동률·동률 순위가 원본 CSV와 일치함을 확인했습니다.
+
+요청대로 두 스케줄 성공 직후 DAG를 pause했습니다. 실행·Task 로그, 두 SELECT의 실제 Athena 실행/결과 JSON과 교차 검증 보고서는 EC2와 로컬 `.runtime/q9/`에 보존합니다. 제출 캡처에서는 두 번째 성공 Run의 Task 3 ID `472271b9-d2c5-43a0-a589-7e858a349ae7`를 XCom·Athena 최근 쿼리·Athena 결과 화면에서 동일하게 선택합니다. 캡처를 위해 DAG를 다시 unpause하거나 SELECT를 재실행할 필요가 없습니다.
 
 공식 참고: [SparkSubmitOperator 4.11.3](https://airflow.apache.org/docs/apache-airflow-providers-apache-spark/4.11.3/_api/airflow/providers/apache/spark/operators/spark_submit/index.html), [Airflow 2.10.5 DAG Runs](https://airflow.apache.org/docs/apache-airflow/2.10.5/core-concepts/dag-run.html), [Athena 쿼리 제출과 요청 토큰](https://docs.aws.amazon.com/boto3/latest/reference/services/athena/client/start_query_execution.html).
 

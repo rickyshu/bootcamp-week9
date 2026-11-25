@@ -44,10 +44,8 @@ def change_ranks(silver):
             .select(*GOLD_COLUMNS))
 
 
-def main():
-    base = f"s3a://{os.environ['S3_BUCKET']}"
-    spark = SparkSession.builder.appName("de9-lhi-q8-price-change").getOrCreate()
-    spark.sparkContext.setLogLevel("ERROR")
+def write_gold(spark, base):
+    """기존 Spark 세션으로 Silver를 읽어 Gold를 저장하고 1위를 출력합니다."""
     silver = gold = None
     try:
         silver = spark.read.parquet(f"{base}/silver/product-prices/").persist()
@@ -71,6 +69,15 @@ def main():
             gold.unpersist()
         if silver is not None:
             silver.unpersist()
+
+
+def main():
+    base = f"s3a://{os.environ['S3_BUCKET']}"
+    spark = SparkSession.builder.appName("de9-lhi-q8-price-change").getOrCreate()
+    spark.sparkContext.setLogLevel("ERROR")
+    try:
+        write_gold(spark, base)
+    finally:
         spark.stop()
 
 

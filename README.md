@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q7 구현·실제 실행·검증 및 캡처를 완료**했고, **Q8 구현·실제 실행·검증을 완료**했습니다. Q8 제출용 화면 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q8 구현·실제 실행·검증 및 캡처를 완료**했고, **Q9 코드를 준비**했습니다. Q9의 실제 스케줄 실행과 Athena 교차 검증은 아직 수행하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -522,9 +522,69 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 실제 `gold/grocery_price_change/`에는 Parquet 1개(3,722 bytes)와 `_SUCCESS`가 생성됐습니다. 별도의 읽기 전용 검증 프로그램이 저장 파일을 다시 읽어 원본 CSV의 Decimal 독립 계산과 100행 전체의 두 달 가격·소수 둘째 자리 반올림 변동률·동률 순위를 대조하여 통과했습니다. 도시별 1위 10행은 위 사전 계산 표와 모두 일치했습니다. `change_rate`의 실제 물리 타입은 `decimal(18,2)`이며 Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
 
-실제 실행 화면은 EC2 `de9-q8` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Gold 객체 목록은 EC2와 로컬 `.runtime/q8/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출용 `change_rank_top1.png`와 `s3_gold_price.png`는 실제 터미널 및 AWS S3 웹 콘솔에서 별도로 촬영해야 합니다.
+실제 실행 화면은 EC2 `de9-q8` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Gold 객체 목록은 EC2와 로컬 `.runtime/q8/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출용 `change_rank_top1.png`와 `s3_gold_price.png`는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 저장했습니다. 실행 지문·1위 10행·정상 종료 및 실제 Gold 객체 목록을 확인했습니다.
 
 공식 참고: Spark 3.5 계열의 [lag](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.lag.html), [rank](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.rank.html), [round](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.round.html). 실제 실행 환경은 Spark 3.5.3입니다.
+
+## Q9 — Airflow 스케줄과 Athena 실행 ID
+
+`part2-price/dags/price_pipeline_dag.py`는 Airflow scheduler가 주기적으로 읽는 Python DAG 정의 파일입니다. DAG ID는 `price_pipeline_lhi`이며, 파일을 파싱한 것과 실제 DAG Run이 실행된 것은 다릅니다. 최초 상태는 pause이고 코드 검증·공개 게시 후에 unpause합니다. 실행된 DAG Run과 Task Instance, XCom은 EC2의 영속 Airflow 메타데이터 DB에 남습니다.
+
+세 Task를 아래 순서로 실행합니다.
+
+1. `spark_batch`: `SparkSubmitOperator`가 `price_batch.py --with-gold`를 기존 Spark standalone 클러스터에 제출합니다. 한 Spark 세션에서 Q7 Bronze/Silver 스냅샷을 만든 다음 Q8 윈도우 계산과 Gold 저장까지 수행합니다. `--with-gold`를 생략한 Q7 단독 실행은 기존 동작을 유지합니다. Gold 계산 함수는 `price_change.py`를 공유하므로 Q8과 다른 계산식을 사용하지 않습니다.
+2. `register_athena`: PythonOperator가 AWS Python SDK(boto3)로 Athena DDL을 실행해 `de9_lhi.grocery_price_change` 외부 테이블을 등록합니다. 테이블은 Q8의 S3 Gold 경로를 참조하며 데이터 복사본을 만드는 것이 아닙니다. 물리 Parquet와 맞춰 가격은 DOUBLE, 변동률은 DECIMAL(18,2), 순위는 INT로 등록합니다. 기존 테이블의 경로·스키마가 다르면 실패시켜 조용히 잘못된 데이터를 조회하지 않게 합니다.
+3. `query_top1`: PythonOperator가 아래 SELECT의 실제 완료를 기다린 뒤 QueryExecutionId 문자열을 반환합니다. Airflow가 이 반환값을 XCom의 `return_value`에 저장합니다. 이 ID는 실행 프로세스나 쿼리 결과 자체가 아니라 Athena 실행 기록의 식별자이며, 같은 ID로 Athena 최근 쿼리·결과 화면을 열어 대조합니다.
+
+```sql
+SELECT market, item_name, price_nov, price_dec, change_rate, change_rank
+FROM de9_lhi.grocery_price_change
+WHERE change_rank = 1
+ORDER BY market;
+```
+
+AWS SDK 클라이언트는 Task 실행 때 생성하고 EC2 IAM 역할로 인증합니다. 코드와 Airflow 설정에 액세스키를 넣지 않습니다. 모든 Athena 쿼리는 기존 워크그룹 `de9-lhi`를 사용하며, 결과는 워크그룹에 설정된 S3 경로에 남습니다. DAG Run·Task·SQL로 만든 요청 토큰을 사용해 같은 Task 재시도가 같은 쿼리를 중복 제출하지 않게 합니다. Athena 실패·취소·시간 초과는 Task 실패로 전파합니다.
+
+### Q9 실행과 검증 순서
+
+스케줄은 UTC 기준 `*/10 * * * *`로 10분마다 실행합니다. `catchup=False`, `max_active_runs=1`, `max_active_tasks=1`로 과거 구간을 한꺼번에 재생하지 않고 DAG Run과 Task의 동시 실행도 제한합니다. DAG Run 제한 시간은 9분입니다. 스케줄 Run ID의 논리 날짜는 실제 작업 시작 시각과 다를 수 있으며, 스케줄 성공 판정에는 `scheduled__...` Run ID와 실제 `run_type=scheduled`을 확인합니다. 수동 Trigger와 파싱 검사는 성공 횟수에 포함하지 않습니다.
+
+1. EC2 재시작 후 Kafka 175·200건 및 EV 그룹 오프셋을 확인하고, Q4 스트리밍이 종료돼 Spark worker가 비어 있는지 확인합니다.
+2. Q9 코드를 커밋·push하고 EC2에서 pull한 다음 `scripts/check-q9-dag.py`로 실제 Airflow 파싱·연산자·의존 관계·스케줄을 검사합니다.
+3. 호스트에서 아래 명령으로 unpause하고 실제 scheduler 실행을 기다립니다. 수동 Trigger는 사용하지 않습니다.
+
+```bash
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  airflow dags unpause price_pipeline_lhi
+```
+
+스케줄 실행 두 번의 세 Task가 모두 성공한 것을 확인한 뒤 아래 명령으로 pause하고 검증합니다.
+
+```bash
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  airflow dags pause price_pipeline_lhi
+docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
+  python /opt/de9/scripts/verify-q9.py
+```
+
+`verify-q9.py`는 Airflow 메타데이터와 실제 Athena 기록·조회 결과를 읽습니다. 스케줄 성공 두 번 이상, 세 Task 성공, 실행 시간 중첩 없음, 최종 pause, Task 3의 XCom ID와 같은 Athena 실행의 성공·워크그룹·SQL을 대조합니다. 각 실행의 실제 결과 10행도 원본 CSV의 Decimal 독립 계산과 비교합니다. 검증 자체는 스케줄 실행이나 SELECT를 새로 만들지 않습니다. 실행 기록은 EC2와 로컬 `.runtime/q9/`에 별도로 보관하며 공개 Git에서 제외합니다.
+
+### Q9 사전 검사 기록
+
+2026-11-25 EC2를 재시작하고 기존 컨테이너 7개의 정상 기동, 두 Kafka 토픽의 원본 CSV 일치(175건·200건), EV 그룹의 기존 오프셋 76·35·64 및 lag 0, Spark worker의 활성 앱 없음을 확인했습니다. 실제 Airflow 2.10.5/Spark provider 4.11.3에서 Q9 DAG 파싱·연산자·의존 관계·10분 스케줄 검사가 통과했고, Gold 함수 분리 후 Q8의 전월 참조·동률·반올림 경계·누락 월 회귀 검사도 실제 Spark 3.5.3에서 통과했습니다. 이 검사는 실제 스케줄 성공 증빙이 아니며, DAG를 unpause하거나 Athena 쿼리를 실행하지 않았습니다.
+
+### Q9 제출 캡처
+
+`part2-price/capture/Q9/`에 다음 네 화면을 저장합니다. AWS Athena 캡처는 사용자가 웹 콘솔에서 촬영합니다.
+
+| 파일 | 필요한 실제 화면 |
+|---|---|
+| `airflow_dag_runs.png` | `price_pipeline_lhi` 실행 목록, 성공한 스케줄 Run ID 두 개 이상과 상태 |
+| `airflow_xcom.png` | 성공 Run의 Task 3 `query_top1` XCom `return_value` 쿼리 ID |
+| `athena_recent_queries.png` | 워크그룹 `de9-lhi` 최근 쿼리에서 위 XCom과 같은 실행 ID의 행 |
+| `athena_query_price.png` | 같은 실행 ID의 Athena SQL·실제 결과 10행과 데이터베이스 `de9_lhi` |
+
+공식 참고: [SparkSubmitOperator 4.11.3](https://airflow.apache.org/docs/apache-airflow-providers-apache-spark/4.11.3/_api/airflow/providers/apache/spark/operators/spark_submit/index.html), [Airflow 2.10.5 DAG Runs](https://airflow.apache.org/docs/apache-airflow/2.10.5/core-concepts/dag-run.html), [Athena 쿼리 제출과 요청 토큰](https://docs.aws.amazon.com/boto3/latest/reference/services/athena/client/start_query_execution.html).
 
 ## 참고
 

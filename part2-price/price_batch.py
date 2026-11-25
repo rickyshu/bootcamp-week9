@@ -1,4 +1,5 @@
 """Q7: Kafka의 현재 데이터를 한 번 읽어 S3 Bronze/Silver 스냅샷을 만듭니다."""
+import argparse
 import os
 
 from pyspark.sql import SparkSession, functions as F, types as T
@@ -33,6 +34,9 @@ def price_summary(silver):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--with-gold", action="store_true", help="Q9: also run Q8 Gold after Silver completes")
+    args = parser.parse_args()
     base = f"s3a://{os.environ['S3_BUCKET']}"
     spark = SparkSession.builder.appName("de9-lhi-q7-price-batch").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
@@ -60,6 +64,9 @@ def main():
         print("Q7 item_name/month price summary (all groups):", flush=True)
         summary = price_summary(silver)
         summary.show(summary.count(), truncate=False)
+        if args.with_gold:
+            from price_change import write_gold
+            write_gold(spark, base)
         print("Q7 SUCCESS: finite batch completed; Spark stopping", flush=True)
     finally:
         if silver is not None:

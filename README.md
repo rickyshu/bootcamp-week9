@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q9 구현·실제 실행·검증 및 캡처를 완료**했습니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. **Q10은 코드 준비와 리셋 전 읽기 전용 점검을 완료**했으며, 오프셋 리셋·리셋 후 검증·캡처는 아직 진행하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q10 구현·실제 실행·검증을 완료**했습니다. Q1~Q9 제출 캡처와 Q10 Kafka UI 캡처를 저장했고, Q10 터미널 캡처 2장은 추가로 저장해야 합니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -651,7 +651,22 @@ CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafk
 
 ### Q10 사전 점검 기록
 
-2026-11-25 기존 EC2에서 Kafka 기본 CLI와 새 모니터를 읽기 전용으로 실행했습니다. 그룹 상태는 `Empty`, 활성 멤버는 0명, 파티션 0·1·2의 실제 커밋과 로그 끝 위치는 각각 76·35·64로 일치하고 lag 합계는 0입니다. Q2 검증으로 기존 Kafka 175건 전체가 원본 CSV와 일치하는 것도 확인했습니다. Python 구문과 Bash 구문 검사를 통과했습니다. 아직 CLI 리셋은 실행하지 않았습니다.
+2026-11-25 기존 EC2에서 Kafka 기본 CLI와 새 모니터를 읽기 전용으로 실행했습니다. 그룹 상태는 `Empty`, 활성 멤버는 0명, 파티션 0·1·2의 실제 커밋과 로그 끝 위치는 각각 76·35·64로 일치하고 lag 합계는 0이었습니다. Q2 검증으로 기존 Kafka 175건 전체가 원본 CSV와 일치하는 것도 확인했습니다. Python 구문과 Bash 구문 검사를 통과했습니다.
+
+### Q10 실제 실행 확인 기록
+
+2026-11-25 16:29:20 한국 시각(07:29:20 UTC)에 공개 커밋 `e4993473ef579518205eb90a15bb441d8fb5ff65`를 EC2 `ip-172-31-11-232`에서 pull한 뒤 실행했습니다. `reset-q10-offsets.sh`의 리셋 전 검증이 통과했고, Kafka 기본 CLI의 `--reset-offsets --to-earliest --execute`가 세 파티션의 새 오프셋을 모두 0으로 적용했습니다. 리셋 후 검증과 16:30:05의 별도 모니터 실행, Kafka CLI describe가 모두 다음 값으로 일치했습니다.
+
+| partition | 실제 current-offset | 실제 log-end-offset | 실제 lag |
+|---|---:|---:|---:|
+| 0 | 0 | 76 | 76 |
+| 1 | 0 | 35 | 35 |
+| 2 | 0 | 64 | 64 |
+| 합계 | | 175 | 175 |
+
+실제 EC2의 Kafka UI에서도 그룹 `ev-consumer-lhi`, 상태 `EMPTY`, 멤버 0명, Total lag 175 및 위 파티션별 값을 확인했습니다. 파티션 상세를 펼친 원본 화면을 `part2-price/capture/Q10/kafka_ui_consumer_group.png`에 저장했습니다. SSH 터널을 통해 실제 EC2의 8080 포트에 접속했으며, 화면의 값이나 이미지를 재구성하지 않았습니다. 원본 JPEG를 보존하고 제출 파일은 내용 편집 없이 PNG 형식으로 변환했습니다.
+
+리셋·모니터 실행 지문과 실제 출력은 EC2 및 로컬 `.runtime/q10/reset-terminal.log`, `monitor-terminal.log`에 보존합니다. `offset_reset.png`와 `kafka_lag_monitor.png`는 이 실제 실행 기록 및 조회 화면에서 추가로 촬영해야 합니다. 캡처를 위해 리셋을 다시 실행할 필요는 없습니다. 검증 후에도 EV 컨슈머는 실행하지 않았고 Q9 DAG의 pause 상태도 확인했습니다.
 
 공식 참고: [Kafka 3.9 그룹 오프셋 리셋](https://kafka.apache.org/39/operations/basic-kafka-operations/), [kafka-python KafkaConsumer 조회 API](https://kafka-python.readthedocs.io/en/master/apidoc/KafkaConsumer.html). 실제 설치된 kafka-python 2.3.2에서 조회를 확인했습니다.
 

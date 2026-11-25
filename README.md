@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q10 구현·실제 실행·검증을 완료**했습니다. Q1~Q9 제출 캡처와 Q10 Kafka UI 캡처를 저장했고, Q10 터미널 캡처 2장은 추가로 저장해야 합니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q10 구현·실제 실행·검증과 필수 캡처 30장 저장을 완료**했습니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. 2026-11-25 작업 종료 후 컨테이너 7개를 정상 종료하고 EC2의 `stopped` 상태를 확인했습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -666,9 +666,33 @@ CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafk
 
 실제 EC2의 Kafka UI에서도 그룹 `ev-consumer-lhi`, 상태 `EMPTY`, 멤버 0명, Total lag 175 및 위 파티션별 값을 확인했습니다. 파티션 상세를 펼친 원본 화면을 `part2-price/capture/Q10/kafka_ui_consumer_group.png`에 저장했습니다. SSH 터널을 통해 실제 EC2의 8080 포트에 접속했으며, 화면의 값이나 이미지를 재구성하지 않았습니다. 원본 JPEG를 보존하고 제출 파일은 내용 편집 없이 PNG 형식으로 변환했습니다.
 
-리셋·모니터 실행 지문과 실제 출력은 EC2 및 로컬 `.runtime/q10/reset-terminal.log`, `monitor-terminal.log`에 보존합니다. `offset_reset.png`와 `kafka_lag_monitor.png`는 이 실제 실행 기록 및 조회 화면에서 추가로 촬영해야 합니다. 캡처를 위해 리셋을 다시 실행할 필요는 없습니다. 검증 후에도 EV 컨슈머는 실행하지 않았고 Q9 DAG의 pause 상태도 확인했습니다.
+리셋·모니터 실행 지문과 실제 출력은 EC2 및 로컬 `.runtime/q10/reset-terminal.log`, `monitor-terminal.log`에 보존합니다. 최종 `offset_reset.png`는 2026-11-25 16:48:43 한국 시각에 사용자가 EC2 호스트에서 실행 지문과 Kafka 기본 CLI를 직접 실행한 화면입니다. 이미 0인 위치에 earliest 리셋을 재적용하여 세 파티션 모두 `NEW-OFFSET=0`임을 확인했습니다. `kafka_lag_monitor.png`는 같은 날 16:44:27의 실제 조회 화면으로, 공개 커밋 `90ca794`와 파티션별 lag 76·35·64, 합계 175가 보입니다. 두 이미지를 원본 그대로 지정 경로에 저장하여 Q10 필수 캡처 3장을 모두 갖췄습니다. 검증 후에도 EV 컨슈머는 실행하지 않았고 Q9 DAG의 pause 상태도 확인했습니다.
 
 공식 참고: [Kafka 3.9 그룹 오프셋 리셋](https://kafka.apache.org/39/operations/basic-kafka-operations/), [kafka-python KafkaConsumer 조회 API](https://kafka-python.readthedocs.io/en/master/apidoc/KafkaConsumer.html). 실제 설치된 kafka-python 2.3.2에서 조회를 확인했습니다.
+
+## 최종 제출 점검 — 2026-11-25
+
+문제지의 제출 폴더 구조와 실제 로컬 파일을 대조했습니다. 아래 수는 필수 PNG 수이며 문항별 실행·검증 기록은 위 해당 문단에 있습니다.
+
+| 문항 | 필수 PNG | 저장 상태 |
+|---|---:|---|
+| Q1 | 6 | 완료 |
+| Q2 | 2 | 완료 |
+| Q3 | 2 | 완료 |
+| Q4 | 3 | 완료 |
+| Q5 | 3 | 완료 |
+| Q6 | 2 | 완료 |
+| Q7 | 3 | 완료 |
+| Q8 | 2 | 완료 |
+| Q9 | 4 | 완료 |
+| Q10 | 3 | 완료 |
+| 합계 | 30 | 누락 없음 |
+
+필수 소스·Compose·Dockerfile·requirements와 추가로 참조하는 `charger_alerts.py`, `price_change.py`, `spark-defaults.conf`, 실행·검증 `scripts/`를 확인했습니다. PNG 30개의 파일 형식·CRC 무결성, 원본 CSV 2개의 행 수·SHA256, Python 25개 파일과 Bash 스크립트의 구문 검사를 통과했습니다. Git 전체 이력에서 AWS 액세스 키 ID·개인키·실제 Slack Webhook URL 패턴을 검사해 검출되지 않았습니다. 이 정적 점검은 앞서 수행한 실제 AWS 실행 검증과 구분하며, EC2를 재시작하거나 작업을 재실행하지 않았습니다.
+
+Q3의 멤버 2명·lag 0 캡처와 Q10의 멤버 0명·lag 175 캡처는 각각 소비 완료 시점과 오프셋 리셋 이후 시점을 기록한 것입니다. EC2의 자동 할당 공인 IP는 중지·재시작으로 달라졌으나 동일 인스턴스 ID와 프라이빗 IP를 사용했습니다. Q9의 XCom과 Athena 최근 쿼리 캡처는 실행 ID `472271b9-d2c5-43a0-a589-7e858a349ae7`로 대응합니다.
+
+최종 ZIP 이름과 최상위 폴더 이름은 `데엔8기_이호인_9주차`로 맞춥니다. 소스·README·최신 `git_log.txt`·원본 CSV·캡처를 포함하고, `.git/`, `.private/`, `.runtime/`, 실제 `.env`, `__pycache__/`는 포함하지 않습니다. 캡처와 CSV는 Git에서 제외하므로 `git archive`만으로 ZIP을 만들면 제출물이 누락됩니다. ZIP 자체는 별도 생성 단계에서 목록과 압축 무결성을 확인해야 합니다.
 
 ## 참고
 

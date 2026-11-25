@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q8 구현·실제 실행·검증 및 캡처를 완료**했고, **Q9 구현·스케줄 2회 성공·Athena/XCom 검증을 완료**했습니다. Q9 DAG는 일시정지했으며 제출용 캡처는 별도로 저장해야 합니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q9 구현·실제 실행·검증 및 캡처를 완료**했습니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. **Q10은 코드 준비와 리셋 전 읽기 전용 점검을 완료**했으며, 오프셋 리셋·리셋 후 검증·캡처는 아직 진행하지 않았습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -598,6 +598,62 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 요청대로 두 스케줄 성공 직후 DAG를 pause했습니다. 실행·Task 로그, 두 SELECT의 실제 Athena 실행/결과 JSON과 교차 검증 보고서는 EC2와 로컬 `.runtime/q9/`에 보존합니다. 제출 캡처에서는 두 번째 성공 Run의 Task 3 ID `472271b9-d2c5-43a0-a589-7e858a349ae7`를 XCom·Athena 최근 쿼리·Athena 결과 화면에서 동일하게 선택합니다. 캡처를 위해 DAG를 다시 unpause하거나 SELECT를 재실행할 필요가 없습니다.
 
 공식 참고: [SparkSubmitOperator 4.11.3](https://airflow.apache.org/docs/apache-airflow-providers-apache-spark/4.11.3/_api/airflow/providers/apache/spark/operators/spark_submit/index.html), [Airflow 2.10.5 DAG Runs](https://airflow.apache.org/docs/apache-airflow/2.10.5/core-concepts/dag-run.html), [Athena 쿼리 제출과 요청 토큰](https://docs.aws.amazon.com/boto3/latest/reference/services/athena/client/start_query_execution.html).
+
+## Q10 — 오프셋 리셋과 lag 모니터링
+
+`part2-price/kafka_lag_monitor.py`는 그룹 이름을 인자로 받는 Python 실행 파일입니다. Kafka에 저장된 그룹의 커밋 오프셋(다음에 읽을 위치)과 각 파티션의 log-end offset(현재 로그 끝 위치)을 조회하고, 둘의 차이인 lag를 표로 출력합니다. 조회용 클라이언트 객체는 프로그램 실행 중에만 존재하며, 실제 오프셋은 Kafka 브로커에 남습니다. 이 프로그램은 그룹에 가입하거나 메시지를 가져오거나 오프셋을 커밋하지 않으므로 반복 조회해도 lag를 줄이지 않습니다. 커밋 기록이 없으면 0으로 가정하지 않고 `UNKNOWN`으로 표시합니다.
+
+대상은 Q3의 `ev-consumer-lhi`와 `ev-charging-sessions`입니다. Q3 Consumer가 모두 종료된 상태에서 Kafka 기본 CLI의 `--reset-offsets --to-earliest --execute`로 가장 이른 보존 위치를 실제 적용합니다. `auto_offset_reset="earliest"` 설정만 바꾸는 것은 기존 커밋을 초기화하는 작업과 다릅니다. 이번 데이터는 보존 시작 위치가 모두 0이므로 리셋 후 다음 소비 위치가 모두 0이 됩니다.
+
+### 실행 순서
+
+공개 커밋을 EC2에서 pull한 뒤 **EC2 호스트 셸**에서 다음 명령을 실행합니다.
+
+```bash
+cd /home/ubuntu/bootcamp-week9
+date && hostname && git rev-parse HEAD && bash scripts/reset-q10-offsets.sh
+```
+
+`reset-q10-offsets.sh`는 리셋 전 원본 CSV 행 수와 로그 범위가 일치하는지, 그룹 멤버가 0명인지, 기존 lag가 0인지 확인합니다. 통과하면 실제 실행하는 Kafka CLI 명령을 출력하고 리셋합니다. 이어서 커밋 위치가 각 파티션의 시작 위치인지, lag 합계가 원본 행 수와 같은지 확인합니다. 실행 기록은 호스트 `.runtime/q10/`에 저장하며 공개 Git에서 제외합니다. 이미 리셋한 상태에서는 사전 검사에서 중단하므로 캡처를 위해 리셋을 반복하지 않습니다.
+
+그다음 별도 실행 지문과 함께 조회 스크립트를 실행합니다.
+
+```bash
+date && hostname && git rev-parse HEAD && bash scripts/run-q10-monitor.sh ev-consumer-lhi
+```
+
+위 래퍼는 Airflow 컨테이너의 Python과 기존 kafka-python 라이브러리로 다음 프로그램을 실행합니다. Airflow DAG를 실행하는 명령은 아닙니다.
+
+```bash
+python /opt/de9/part2-price/kafka_lag_monitor.py ev-consumer-lhi
+```
+
+아래는 **리셋 전 실제 조회로부터 계산한 예상 결과**이며, 리셋 후 실행 증빙은 아닙니다.
+
+| partition | 리셋 후 예상 current-offset | 현재 log-end-offset | 예상 lag |
+|---|---:|---:|---:|
+| 0 | 0 | 76 | 76 |
+| 1 | 0 | 35 | 35 |
+| 2 | 0 | 64 | 64 |
+| 합계 | | 175 | 175 |
+
+CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafka UI의 동일 그룹 파티션별 lag와 대조합니다. 조회 시점이 다르면 값이 바뀔 수 있으므로 캡처를 마칠 때까지 Q3 Consumer를 다시 시작하지 않습니다.
+
+### Q10 제출 캡처
+
+저장 위치는 요구된 `part2-price/capture/Q10/`입니다.
+
+| 파일 | 필요한 실제 화면 |
+|---|---|
+| `offset_reset.png` | EC2 호스트 실행 지문, 실제 Kafka CLI 리셋 명령과 적용 결과 |
+| `kafka_lag_monitor.png` | 실행 지문, 직접 작성한 스크립트의 파티션별 topic·partition·current-offset·log-end-offset·lag 및 합계 |
+| `kafka_ui_consumer_group.png` | Kafka UI의 `ev-consumer-lhi` 그룹과 파티션별 lag, 스크립트와 같은 값 |
+
+### Q10 사전 점검 기록
+
+2026-11-25 기존 EC2에서 Kafka 기본 CLI와 새 모니터를 읽기 전용으로 실행했습니다. 그룹 상태는 `Empty`, 활성 멤버는 0명, 파티션 0·1·2의 실제 커밋과 로그 끝 위치는 각각 76·35·64로 일치하고 lag 합계는 0입니다. Q2 검증으로 기존 Kafka 175건 전체가 원본 CSV와 일치하는 것도 확인했습니다. Python 구문과 Bash 구문 검사를 통과했습니다. 아직 CLI 리셋은 실행하지 않았습니다.
+
+공식 참고: [Kafka 3.9 그룹 오프셋 리셋](https://kafka.apache.org/39/operations/basic-kafka-operations/), [kafka-python KafkaConsumer 조회 API](https://kafka-python.readthedocs.io/en/master/apidoc/KafkaConsumer.html). 실제 설치된 kafka-python 2.3.2에서 조회를 확인했습니다.
 
 ## 참고
 

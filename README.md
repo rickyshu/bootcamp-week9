@@ -2,7 +2,7 @@ https://github.com/rickyshu/bootcamp-week9
 
 # 데엔8기 이호인 9주차
 
-현재 **Q1~Q10 구현·실제 실행·검증과 필수 캡처 30장 저장을 완료**했습니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. 2026-11-25 작업 종료 후 컨테이너 7개를 정상 종료하고 EC2의 `stopped` 상태를 확인했습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
+현재 **Q1~Q10 구현·실제 실행·검증과 필수 캡처 30장 저장을 완료**했습니다. Q9는 실제 스케줄 2회 성공과 Athena/XCom 일치를 확인한 뒤 DAG를 일시정지했습니다. 2026-11-26 Q3 재촬영과 Q10 상태 복구 후 컨테이너 7개를 정상 종료하고 EC2의 `stopped` 상태를 확인했습니다. 이니셜은 `lhi`입니다. 이 저장소의 구성 파일은 EC2에 컨테이너를 만드는 입력 파일이며, 파일이 존재하는 것과 실제 컨테이너가 실행되는 것은 다릅니다. AWS에서 실행하고 화면을 확인하기 전까지 문항 완료로 간주하지 않습니다.
 
 ## 구성과 실행 흐름
 
@@ -141,13 +141,13 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 2026-11-23 12:12:54 UTC(한국 21:12:54)에 공개 커밋 `9f52fb8`로 EC2에서 Producer를 한 번 실행했습니다. ACK 175건, 파티션별 0=76·1=35·2=64건이었습니다. 원본 CSV 전체와 Kafka 메시지 전체의 값·중복 횟수가 일치했고 23개 station의 key·파티션 일치, 파티션별 시간순서 검증도 통과했습니다. Kafka UI의 읽기 API에서도 각 파티션의 시작 오프셋 0, 끝 오프셋 76·35·64와 ISR 2개를 확인했습니다. 브로커를 실제로 중단하는 장애 주입 실험은 수행하지 않았습니다.
 
-실제 실행 터미널은 EC2의 `de9-q2` tmux 세션에 남겨 두었습니다. tmux는 서버에서 셸 화면을 유지하는 터미널 프로그램입니다. SSH 접속 후 아래 명령으로 기존 실행 화면에 연결합니다. Producer를 재실행하거나 저장 로그를 실행 결과처럼 꾸미는 명령이 아닙니다.
+실제 실행 터미널은 당시 EC2의 `de9-q2` tmux 세션에서 촬영했습니다. tmux는 서버에서 셸 화면을 유지하는 터미널 프로그램이지만 EC2 중지 후에도 해당 세션이 유지된다고 가정하지 않습니다. 아래는 당시 화면에 접속한 명령이며, 현재 증빙은 저장된 원본 캡처와 실행 기록으로 확인합니다. Producer를 재실행하지 않습니다.
 
 ```bash
 tmux attach -t de9-q2
 ```
 
-창을 넓혀 실행 명령·날짜·호스트명·커밋 해시·`SUCCESS: 175 messages acknowledged`까지 보이게 `producer_run.png`를 찍습니다. 캡처 후 Ctrl+B를 누르고 손을 뗀 다음 D를 누르면 화면에서 분리됩니다. 세션을 종료하거나 전송 명령을 다시 입력하지 않습니다.
+저장된 `producer_run.png`에는 실행 명령·날짜·호스트명·커밋 해시·`SUCCESS: 175 messages acknowledged`가 함께 보입니다. 캡처를 위해 전송 명령을 다시 실행하지 않습니다.
 
 `kafka_ui_topic.png`는 브라우저에서 EC2 공인 IP의 8080 포트 → 클러스터 `de9-lhi` → Topics → `ev-charging-sessions`를 열고 토픽 이름·메시지 수 175·파티션 3·복제 2가 보이게 촬영합니다. 이 저장소에 원본 CSV·키·캡처·실행 로그를 공개하지 않습니다.
 
@@ -260,15 +260,26 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 ### Q4 캡처
 
-`part1-ev/capture/Q4/`에 아래 세 이미지를 보관합니다. 실제 집계 출력은 `.runtime/q4/stream.log`, 시작·진단 로그는 `.runtime/q4/spark-stderr.log`에 따로 저장됩니다. 화면에는 실제 stdout 집계가 그대로 나오고 실패하면 진단 로그 끝부분도 표시합니다. 로그 파일은 캡처를 대체하지 않습니다.
+`part1-ev/capture/Q4/`에 필수 3장과 S3 보완 4장을 합해 PNG 7개를 보관합니다. 실제 집계 출력은 `.runtime/q4/stream.log`, 시작·진단 로그는 `.runtime/q4/spark-stderr.log`에 따로 저장됩니다. 화면에는 실제 stdout 집계가 그대로 나오고 실패하면 진단 로그 끝부분도 표시합니다. 로그 파일은 캡처를 대체하지 않습니다.
 
-| 파일 | 촬영할 실제 화면 |
+| 파일 | 저장된 실제 화면 |
 |---|---|
 | `spark_streaming.png` | EC2 호스트의 실행 지문과 Spark console sink의 연속 2~3개 Batch 누적 집계. 전체 설치구역 이름이 보이게 촬영 |
-| `s3_bronze.png` | AWS S3 웹 콘솔 → 본인 버킷 → `bronze/ev-charging-sessions/dt=2017-06-06/` 아래 배치별 Parquet 객체 목록. 필요하면 객체 검색으로 하위 경로까지 표시 |
-| `s3_silver.png` | 같은 버킷의 `silver/ev-charging-sessions/dt=2017-06-06/` 아래 배치별 Parquet 객체 목록 |
+| `s3_bronze.png` | AWS S3 웹 콘솔의 `bronze/ev-charging-sessions/dt=2017-06-06/batch_id=00000000/` 안에 있는 Parquet와 `_SUCCESS` 객체 목록 |
+| `s3_silver.png` | 같은 버킷의 `silver/ev-charging-sessions/dt=2017-06-06/batch_id=00000000/` 안에 있는 Parquet와 `_SUCCESS` 객체 목록 |
 
 S3 캡처는 사용자가 실제 웹 콘솔에서 촬영합니다. CLI의 객체 목록이나 검증 출력으로 대신하지 않습니다. 코드 공개 저장소에는 CSV·키·캡처·실행 로그를 포함하지 않습니다.
+
+기존 S3 캡처는 첫 배치의 파일 존재를 보여 줍니다. 2026-11-26 사용자가 촬영한 아래 네 원본 PNG를 추가 저장해 두 번째·세 번째 배치의 Parquet 존재도 보완했습니다. 문제지 15쪽은 S3 파티션 객체 목록과 2~3주기 콘솔 출력을 요구하며, S3의 모든 배치를 각각 촬영하라는 별도 조건은 없습니다. 아래 네 장은 필수 캡처를 보완하는 자료입니다.
+
+| 추가 저장 완료 파일 | 촬영된 S3 폴더 (`de9-lhi-947554757698` 버킷 기준) |
+|---|---|
+| `s3_bronze_batch1.png` | `bronze/ev-charging-sessions/dt=2017-06-06/batch_id=00000001/` |
+| `s3_bronze_batch2.png` | `bronze/ev-charging-sessions/dt=2017-06-06/batch_id=00000002/` |
+| `s3_silver_batch1.png` | `silver/ev-charging-sessions/dt=2017-06-06/batch_id=00000001/` |
+| `s3_silver_batch2.png` | `silver/ev-charging-sessions/dt=2017-06-06/batch_id=00000002/` |
+
+추가 네 화면에는 상단의 버킷·레이어·날짜·배치 경로와 `.parquet`·`_SUCCESS` 파일명·크기·마지막 수정 시각이 함께 보입니다. 파일명·시각을 기존 S3 객체 기록과 대조했고 내용·해상도를 편집하지 않고 원본 그대로 저장했습니다. 기존 첫 배치 캡처도 유지하므로 Bronze·Silver 각각 배치 0·1·2의 파일 존재가 화면으로 확인됩니다. 이 보완을 위해 EC2를 시작하거나 스트리밍을 재실행하지 않았습니다.
 
 ### Q4 실제 실행 확인 기록
 
@@ -289,13 +300,9 @@ S3 캡처는 사용자가 실제 웹 콘솔에서 촬영합니다. CLI의 객체
 | PALO ALTO CA / TED THOMPSON | 11 |
 | PALO ALTO CA / WEBSTER | 30 |
 
-Q3 그룹은 Consumer 종료 상태(member 0·EMPTY)이며 커밋 오프셋 0=76·1=35·2=64가 그대로 유지됐습니다. Q4는 Q3 그룹을 리셋하지 않았습니다. 실행 stdout·진단 로그·검증 결과·S3 객체 목록·Q3 그룹 확인 JSON을 EC2 및 로컬 `.runtime/q4/`에 보관합니다. 실제 실행 터미널은 EC2의 `de9-q4` tmux 세션에 남겨 두었으며 아래 명령으로 연결합니다. **스트리밍을 재실행하지 않습니다.**
+Q4 실행 당시 Q3 그룹은 Consumer 종료 상태(member 0·EMPTY)였으며 커밋 오프셋 0=76·1=35·2=64가 그대로 유지됐습니다. Q4는 Q3 그룹을 리셋하지 않았습니다. 이는 당시 기록이며 이후 Q10 오프셋 리셋·Q3 재촬영 후의 현재 상태와 구분합니다. 실행 stdout·진단 로그·검증 결과·S3 객체 목록·Q3 그룹 확인 JSON을 EC2 및 로컬 `.runtime/q4/`에 보관했습니다.
 
-```bash
-tmux attach -t de9-q4
-```
-
-SSH 재접속 후 창을 크게 열고 글자 크기를 줄여 실행 지문과 3개 Batch 표를 함께 촬영합니다. 필요하면 Ctrl+B를 누르고 손을 뗀 뒤 `[`로 스크롤 모드에 들어가 PageUp으로 실제 실행 화면 위쪽을 봅니다. `q`로 스크롤 모드를 끝내고 Ctrl+B를 누른 뒤 D로 화면에서 분리합니다. tmux는 EC2 중지 후에는 유지되지 않으므로 캡처를 먼저 완료합니다. 제출용 세 이미지의 촬영·저장은 별도 단계이며 위 검증 기록만으로 캡처 완료를 의미하지 않습니다.
+필수 캡처 3장은 촬영·저장 완료했습니다. `spark_streaming.png`는 당시 `de9-q4` tmux 세션에서 실행 명령·날짜·호스트·커밋과 Batch 0·1·2의 누적 집계가 함께 보이도록 촬영한 화면입니다. S3 두 캡처는 각 레이어 첫 배치의 실제 객체 목록입니다. EC2를 중지했으므로 당시 tmux 세션이 현재도 유지된다고 가정하지 않습니다. 기존 캡처와 저장된 실행·검증 기록으로 당시 결과를 확인하며, S3 보완 촬영을 위해 스트리밍을 다시 실행하거나 체크포인트를 삭제하지 않습니다.
 
 공식 동작 참고: [Spark 3.5 계열 Structured Streaming의 foreachBatch·체크포인트](https://spark.apache.org/docs/3.5.7/structured-streaming-programming-guide.html), [Kafka 입력·커넥터 배포](https://spark.apache.org/docs/3.5.7/structured-streaming-kafka-integration.html). 이 과제의 실제 설치 버전과 커넥터는 3.5.3으로 고정합니다.
 
@@ -330,13 +337,23 @@ Athena 등록 스크립트는 EC2 호스트의 AWS CLI를 호출하므로 EC2 IA
 
 ### Q5 캡처
 
-`part1-ev/capture/Q5/`에 다음 3개 파일을 보관합니다. 캡처는 사용자가 실제 화면에서 촬영하고, Webhook 설정·토큰 화면은 찍지 않습니다.
+`part1-ev/capture/Q5/`에 필수 3장과 Slack 수신 보완 2장을 합해 PNG 5개를 보관합니다. Slack 보완 캡처는 사용자가 실제 채널에서 촬영한 원본을 그대로 저장했습니다. Webhook 설정·토큰 화면은 포함하지 않습니다.
 
 | 파일 | 필요한 실제 화면 |
 |---|---|
 | `slack_alert.png` | 본인 워크스페이스의 채널명·Week9 EV Alerts 앱·실제 수신 메시지. 네 필드와 `idleSec > 5400`이 보이게 촬영 |
 | `s3_gold.png` | AWS S3 웹 콘솔의 `gold/ev_charging_agg/` 경로와 Parquet 객체 목록 |
 | `athena_query_ev.png` | Athena 웹 콘솔 Query Editor, 워크그룹 `de9-lhi`·데이터베이스 `de9_lhi`, 아래 SELECT와 실제 결과 |
+
+2026-11-26 추가한 Slack 보완 캡처는 다음과 같습니다. 기존 `slack_alert.png`도 유지합니다.
+
+| 추가 저장 파일 | 실제 화면에서 확인되는 내용 |
+|---|---|
+| `slack_alert_batch0_full.png` | 채널명·Week9 EV Alerts 발신 앱·배치 0의 7건 전체와 배치 1 제목 |
+| `slack_alert_batch1_batch2_full.png` | 같은 채널의 배치 1의 3건 전체와 배치 2의 8건 전체 |
+
+두 원본에는 이상 기준 `idleSec > 5400초`와 각 세션의 `stationName`, `locationGroup`, `startTime`, `idleSec`가 표시됩니다. 배치 1 제목이 두 화면에 겹쳐 연속성을 확인할 수 있으며, 두 장을 합해 7·3·8건, 총 18건의 수신 내용을 확인합니다. 이미지 내용·해상도는 편집하지 않았고 알림을 재전송하지 않았습니다. 원본 파일의 SHA256과 저장 경로는 비공개 `.runtime/q5-supplement-capture-manifest.json`에 기록했습니다.
+
 
 ```sql
 SELECT location_group, anomaly_count
@@ -367,7 +384,7 @@ Gold 경로에는 8개 행을 담은 Parquet 1개와 `_SUCCESS`가 생성됐습�
 - 외부 테이블 등록 QueryExecutionId: `39a8fdaf-4827-4d01-a350-813188befc41`
 - 검증 SELECT QueryExecutionId: `63b21fa8-2131-4d1c-9094-fb109f370719`
 
-현재 입력을 모두 처리한 Q5 스트리밍 쿼리는 정상 종료했습니다. Airflow·Spark worker의 OOMKilled 값은 false였습니다. 실제 실행 화면은 EC2의 `de9-q5` tmux 세션에, 로그·검증 결과·Gold 객체 목록·Slack ACK 기록·Athena SQL 및 결과 JSON은 EC2와 로컬 `.runtime/q5/`에 보존합니다. 이 기록과 비공개 Webhook 설정은 공개 Git에서 제외합니다. 캡처를 위해 알림 전송을 재실행하지 않습니다.
+당시 입력을 모두 처리한 Q5 스트리밍 쿼리는 정상 종료했습니다. Airflow·Spark worker의 OOMKilled 값은 false였습니다. 실제 실행은 당시 EC2의 `de9-q5` tmux 세션에서 관찰했으며, EC2 중지 후 세션이 유지된다고 가정하지 않습니다. 로그·검증 결과·Gold 객체 목록·Slack ACK 기록·Athena SQL 및 결과 JSON은 EC2와 로컬 `.runtime/q5/`에 보존합니다. 이 기록과 비공개 Webhook 설정은 공개 Git에서 제외합니다. 캡처를 위해 알림 전송을 재실행하지 않습니다.
 
 Slack 연결 자체는 무료 플랜의 앱 연결 범위에서 사용하며 EC2·S3·Athena 사용료는 별도입니다. 공식 참고: [Slack Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/), [Athena Parquet 외부 테이블](https://docs.aws.amazon.com/athena/latest/ug/parquet-serde.html).
 
@@ -419,7 +436,7 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 브로커 ACK를 받은 실제 건수는 파티션 0=80, 1=60, 2=60이며, Producer는 flush·close 후 정상 종료했습니다. 별도 검증 프로그램이 실제 Kafka 메시지 전체를 읽어 원본 CSV의 모든 값·중복 횟수, JSON 숫자 타입, market 키와 권역별 파티션을 독립 대조하여 통과했습니다. 검증 시 컨슈머 그룹 가입과 오프셋 커밋은 하지 않았습니다.
 
-실제 실행 화면은 EC2 `de9-q6` tmux 세션에 남아 있습니다. 토픽 생성·전송 로그 `producer.log`, 검증 결과 `verify.log`, 실행 지문을 포함한 터미널 기록 `terminal.txt`는 EC2와 로컬 `.runtime/q6/`에 보존하며 공개 Git에서 제외합니다. 캡처를 위해 Producer를 다시 실행하지 않습니다. Q6의 두 제출 PNG는 실제 화면에서 촬영해 저장했습니다. `producer_run.png`에는 실행 지문·토픽 생성·파티션별 ACK·SUCCESS가, `kafka_ui_partitions.png`에는 실제 토픽의 200건 및 80·60·60건이 보입니다.
+실제 실행 화면은 당시 EC2 `de9-q6` tmux 세션에서 촬영했습니다. EC2 중지 이후에도 이 세션이 유지된다고 가정하지 않습니다. 토픽 생성·전송 로그 `producer.log`, 검증 결과 `verify.log`, 실행 지문을 포함한 터미널 기록 `terminal.txt`는 EC2와 로컬 `.runtime/q6/`에 보존하며 공개 Git에서 제외합니다. 캡처를 위해 Producer를 다시 실행하지 않습니다. Q6의 두 제출 PNG는 실제 화면에서 촬영해 저장했습니다. `producer_run.png`에는 실행 지문·토픽 생성·파티션별 ACK·SUCCESS가, `kafka_ui_partitions.png`에는 실제 토픽의 200건 및 80·60·60건이 보입니다.
 
 공식 참고: [kafka-python KafkaProducer의 partitioner 인자](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaProducer.html).
 
@@ -472,7 +489,9 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 별도의 검증 프로그램이 S3 Bronze를 Kafka 원본 key/value 바이트·topic/partition/offset과 대조해 완전히 일치함을 확인했습니다. Silver의 `price=double`, 200개 행의 모든 CSV 값·중복 횟수, 20개 그룹 평균·최고·최저 가격을 독립 Decimal 계산과 대조하여 통과했습니다. 결측·0·음수·숫자 변환 실패·NaN·무한대 가격의 제외 검사도 통과했습니다. Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
 
-실제 배치 실행 화면은 EC2 `de9-q7` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Bronze·Silver 객체 목록은 EC2와 로컬 `.runtime/q7/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출 PNG 3개는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 지정 경로에 저장했습니다. 실행 지문·20행 집계·정상 종료와 Bronze/Silver의 실제 객체 목록을 확인했습니다.
+실제 배치 실행 화면은 당시 EC2 `de9-q7` tmux 세션에서 촬영했습니다. EC2 중지 이후에도 이 세션이 유지된다고 가정하지 않습니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Bronze·Silver 객체 목록은 EC2와 로컬 `.runtime/q7/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출 PNG 3개는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 지정 경로에 저장했습니다. 실행 지문·20행 집계·정상 종료와 Bronze/Silver의 실제 객체 목록을 확인했습니다.
+
+촬영 당시 코드 커밋은 위의 `67777408d8a7cd908c625e75ac0bf091d7d6f54f`입니다. 이후 Q9 연동을 위해 `price_batch.py`에 선택 인자 `--with-gold`와 Gold 함수 호출을 추가했습니다. Q7의 `run-q7.sh`는 이 인자를 전달하지 않으므로 기존 Bronze/Silver 저장·집계 동작을 유지합니다. 정제 함수 `silver_events()`와 집계 함수 `price_summary()`도 촬영 당시와 동일합니다. 기존 Q7 캡처는 Q7 단독 실행의 증빙으로 사용하며 Q9의 Gold 실행 증빙과 구분합니다.
 
 공식 참고: [Spark 3.5 계열 Kafka 배치 읽기와 원본 열 구조](https://spark.apache.org/docs/3.5.6/structured-streaming-kafka-integration.html#creating-a-kafka-source-for-batch-queries). 실행 라이브러리는 기존 환경과 동일한 Spark 3.5.3입니다.
 
@@ -543,7 +562,7 @@ docker compose -f part1-ev/docker-compose.yaml exec -T airflow \
 
 실제 `gold/grocery_price_change/`에는 Parquet 1개(3,722 bytes)와 `_SUCCESS`가 생성됐습니다. 별도의 읽기 전용 검증 프로그램이 저장 파일을 다시 읽어 원본 CSV의 Decimal 독립 계산과 100행 전체의 두 달 가격·소수 둘째 자리 반올림 변동률·동률 순위를 대조하여 통과했습니다. 도시별 1위 10행은 위 사전 계산 표와 모두 일치했습니다. `change_rate`의 실제 물리 타입은 `decimal(18,2)`이며 Airflow와 Spark worker의 OOMKilled 값은 false였습니다.
 
-실제 실행 화면은 EC2 `de9-q8` tmux 세션에 보존합니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Gold 객체 목록은 EC2와 로컬 `.runtime/q8/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출용 `change_rank_top1.png`와 `s3_gold_price.png`는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 저장했습니다. 실행 지문·1위 10행·정상 종료 및 실제 Gold 객체 목록을 확인했습니다.
+실제 실행 화면은 당시 EC2 `de9-q8` tmux 세션에서 촬영했습니다. EC2 중지 후에도 해당 세션이 유지된다고 가정하지 않습니다. 실행·진단·검증 로그와 실행 지문을 포함한 터미널 기록, Gold 객체 목록은 EC2와 로컬 `.runtime/q8/`에 백업했습니다. 이 기록과 원본 CSV는 공개 Git에서 제외합니다. 제출용 `change_rank_top1.png`와 `s3_gold_price.png`는 실제 터미널 및 AWS S3 웹 콘솔에서 촬영해 저장했습니다. 실행 지문·1위 10행·정상 종료 및 실제 Gold 객체 목록을 확인했습니다.
 
 공식 참고: Spark 3.5 계열의 [lag](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.lag.html), [rank](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.rank.html), [round](https://spark.apache.org/docs/3.5.6/api/python/reference/pyspark.sql/api/pyspark.sql.functions.round.html). 실제 실행 환경은 Spark 3.5.3입니다.
 
@@ -691,7 +710,7 @@ CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafk
 
 공식 참고: [Kafka 3.9 그룹 오프셋 리셋](https://kafka.apache.org/39/operations/basic-kafka-operations/), [kafka-python KafkaConsumer 조회 API](https://kafka-python.readthedocs.io/en/master/apidoc/KafkaConsumer.html). 실제 설치된 kafka-python 2.3.2에서 조회를 확인했습니다.
 
-## 최종 제출 점검 — 2026-11-25
+## 최종 제출 점검 — 2026-11-26
 
 문제지의 제출 폴더 구조와 실제 로컬 파일을 대조했습니다. 아래 수는 필수 PNG 수이며 문항별 실행·검증 기록은 위 해당 문단에 있습니다.
 
@@ -709,17 +728,40 @@ CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafk
 | Q10 | 3 | 완료 |
 | 합계 | 30 | 누락 없음 |
 
-2026-11-26 Q1의 정책 요약 보완 캡처 `iam_policy_summary.png` 1장을 추가했습니다. 필수 30장에 보완 1장을 더해 현재 저장된 PNG는 총 31장입니다.
+2026-11-26 Q1의 정책 요약 보완 캡처 `iam_policy_summary.png` 1장, Q4의 배치별 S3 보완 캡처 4장, Q5의 Slack 전체 수신 보완 캡처 2장을 추가했습니다. 필수 30장에 보완 7장을 더해 현재 저장된 PNG는 총 37장입니다.
 
-필수 소스·Compose·Dockerfile·requirements와 추가로 참조하는 `charger_alerts.py`, `price_change.py`, `spark-defaults.conf`, 실행·검증 `scripts/`를 확인했습니다. PNG 30개의 파일 형식·CRC 무결성, 원본 CSV 2개의 행 수·SHA256, Python 25개 파일과 Bash 스크립트의 구문 검사를 통과했습니다. Git 전체 이력에서 AWS 액세스 키 ID·개인키·실제 Slack Webhook URL 패턴을 검사해 검출되지 않았습니다. 이 정적 점검은 앞서 수행한 실제 AWS 실행 검증과 구분하며, EC2를 재시작하거나 작업을 재실행하지 않았습니다.
+필수 소스·Compose·Dockerfile·requirements와 추가로 참조하는 `charger_alerts.py`, `price_change.py`, `spark-defaults.conf`, 실행·검증 `scripts/`를 확인했습니다. PNG 37개의 파일 형식·CRC 무결성, 원본 CSV 2개의 행 수·SHA256, Python 26개 파일과 Bash 스크립트 13개의 구문 검사를 통과했습니다. Git 전체 이력에서 AWS 액세스 키 ID·개인키·실제 Slack Webhook URL 패턴을 검사해 검출되지 않았습니다. 이 정적 점검은 앞서 수행한 실제 AWS 실행 검증과 구분하며, EC2를 재시작하거나 작업을 재실행하지 않았습니다.
 
 Q3의 멤버 2명·lag 0 캡처와 Q10의 멤버 0명·lag 175 캡처는 각각 소비 완료 시점과 오프셋 리셋 이후 시점을 기록한 것입니다. EC2의 자동 할당 공인 IP는 중지·재시작으로 달라졌으나 동일 인스턴스 ID와 프라이빗 IP를 사용했습니다. Q9의 XCom과 Athena 최근 쿼리 캡처는 실행 ID `472271b9-d2c5-43a0-a589-7e858a349ae7`로 대응합니다.
 
 최종 ZIP 이름과 최상위 폴더 이름은 `데엔8기_이호인_9주차`로 맞춥니다. 소스·README·최신 `git_log.txt`·원본 CSV·캡처를 포함하고, `.git/`, `.private/`, `.runtime/`, 실제 `.env`, `__pycache__/`는 포함하지 않습니다. 캡처와 CSV는 Git에서 제외하므로 `git archive`만으로 ZIP을 만들면 제출물이 누락됩니다. ZIP 자체는 별도 생성 단계에서 목록과 압축 무결성을 확인해야 합니다.
 
+### PDF 원문 기준 최종 대조 — 2026-11-26
+
+Chrome의 Google Drive 뷰어에서 문제지 1~35쪽 중 공통 규칙·제출 구조와 Q1~Q10의 요구사항·캡처 예시를 직접 확인했습니다. API의 PDF 다운로드가 403으로 제한됐던 이전 검토와 달리, 아래 판정은 원문 요구사항을 확인한 뒤 코드·원본 CSV·저장된 실제 실행 기록·제출 캡처를 대조한 결과입니다. 이번 최종 점검을 위해 EC2를 시작하거나 Producer·Consumer·Spark·DAG·Athena를 다시 실행하지 않았습니다. 로컬 구문·회귀 검사는 당시 실제 AWS 실행 증빙과 구분합니다.
+
+| 문항 | 문제지 요구·예시 쪽 | 대조 결과 |
+|---|---|---|
+| Q1 | 7~10 | 단일 EC2·역할 연결·7개 컨테이너·토픽 3파티션/복제 2·웹 콘솔과 STS 식별자 대응 확인 |
+| Q2 | 11~12 | 시간순 replay·0.1초 간격·유실/중복 방지 설정·station 키·정리 동작·175건 확인 |
+| Q3 | 13~14 | 수동 커밋·두 Consumer 분담·리밸런싱·멤버 2/lag 0·endedBy 합계 175건 확인 |
+| Q4 | 15~17 | readStream·명시적 스키마·두 foreachBatch·시간 변환·누적 3주기·S3 웹 콘솔 확인 |
+| Q5 | 18~20 | idleSec > 5400·실제 Slack 수신 18건·8개 구역 Gold·Athena 집계 확인 |
+| Q6 | 21~23 | kafka-python 클래스 파티셔너·기본 fallback·send 직접 지정 없음·80/60/60건 확인 |
+| Q7 | 24~26 | 유한 배치·Bronze 원본/Silver double 정제·20개 품목/월 집계·S3 객체 확인 |
+| Q8 | 27~29 | lag 윈도우·반올림 변동률의 절대값 순위·Gold 전체 100행/6열·1위 10행 확인 |
+| Q9 | 30~32 | SparkSubmitOperator·10분 스케줄 2회 성공·중첩 없음·XCom/Athena ID 일치·pause 확인 |
+| Q10 | 33~34 | 멤버 0·실제 earliest 리셋·파티션 lag 76/35/64·총 175·Kafka UI 일치 확인 |
+
+공통 규칙은 1~4쪽, ZIP 구조는 6쪽, 작업 종료 시 EC2 중지는 35쪽을 기준으로 확인했습니다. 터미널에는 EC2 호스트 실행 지문이 있고, 브라우저 증빙은 실제 AWS·Kafka UI·Airflow·Slack 화면입니다. Q1~Q10의 필수 이름을 유지한 PNG 30장과 추가 보완 7장을 제출 ZIP에 함께 넣습니다. 화면 내용을 재구성하거나 숫자를 편집하지 않았습니다.
+
+Q8 원문은 반올림한 변동률과 그 절대값에 따른 순위를 요구하며, 반올림 전 원시값으로 순위를 계산하라는 별도 조건은 없습니다. 현재 구현은 이 문구에 맞는 해석이며, 원본 데이터의 도시별 1위 10행도 일치합니다. 공동 1위 입력에 대한 별도 요구는 없고 제공 원본에는 공동 1위가 없습니다. 기존 Q8 캡처와 계산 코드를 유지했습니다. Q9 연동을 위해 Gold 저장 본문을 `write_gold(spark, base)`로 분리했으나 계산 함수는 촬영 당시와 동일합니다.
+
+저장된 증빙 범위에서 필수 제출물 누락이나 실제 수치 불일치는 발견하지 못했습니다. 이 점검은 채점 결과를 보장하는 문구가 아니며, 실행하지 않은 장애 상황까지 검증 완료로 간주하지 않습니다.
+
 ## 참고
 
-- 과제 원문: [9주차 문제지](https://drive.google.com/file/d/1PpJEN2VyGTrbmo4B6qU34ImX7Gcb168P/view), 1~8쪽. 문제지 자체는 공개 저장소에 복제하지 않습니다.
+- 과제 원문: [9주차 문제지](https://drive.google.com/file/d/1PpJEN2VyGTrbmo4B6qU34ImX7Gcb168P/view), 1~35쪽. 문제지 자체는 공개 저장소에 복제하지 않습니다.
 - [Kafka 공식 Docker 예제](https://github.com/apache/kafka/blob/3.9.1/docker/examples/docker-compose-files/cluster/combined/plaintext/docker-compose.yml)
 - [Airflow 이미지 확장](https://airflow.apache.org/docs/docker-stack/build.html)
 - [EC2 역할 사용](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_use_switch-role-ec2.html)

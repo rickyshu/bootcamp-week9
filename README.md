@@ -73,13 +73,14 @@ date && hostname && git rev-parse HEAD && docker ps
 date && hostname && git rev-parse HEAD && bash scripts/create-ev-topic.sh
 ```
 
-캡처 위치는 `part1-ev/capture/Q1/`입니다. 캡처 이미지와 입력 CSV는 공개 저장소에 올리지 않고 최종 ZIP에 별도로 포함합니다. 아래 이름은 필요한 파일 목록이며 아직 이미지가 생성되었다는 뜻이 아닙니다.
+캡처 위치는 `part1-ev/capture/Q1/`이며, 필수 6개와 권한 요약 보완 1개를 합해 PNG 7개를 저장했습니다. 캡처 이미지와 입력 CSV는 공개 저장소에 올리지 않고 최종 ZIP에 별도로 포함합니다. `iam_role.png`는 역할·정책 연결을 보여 주고, 2026-11-26 추가한 `iam_policy_summary.png`는 같은 정책의 S3·Athena·Glue 허용 권한 요약을 보여 줍니다. 추가 캡처는 사용자가 제공한 원본을 내용·해상도·계정 ID 편집 없이 그대로 저장했습니다.
 
 | 파일 | 실제 화면에서 확인할 내용 |
 |---|---|
 | `ec2_instance.png` | 서울 리전 EC2 → 인스턴스 → de9-lhi 선택 → 인스턴스 요약/세부 정보. Running, 인스턴스 ID, t3.large, 프라이빗 IP, IAM 역할이 보이게 촬영 |
 | `security_group.png` | EC2 → 보안 그룹 → de9-lhi → 인바운드 규칙. TCP 22·4040·8080·8081·8082·8083과 각 소스의 본인 IP /32가 보이게 촬영 |
 | `iam_role.png` | IAM → 역할 → de9-ec2-lhi → 권한. Week9RuntimeLhi 정책을 펼쳐 S3·Athena·Glue 권한과 역할 이름이 보이게 촬영. 정책 본문 조회가 제한되면 같은 계정의 관리자 콘솔에서 촬영 |
+| `iam_policy_summary.png` (보완) | IAM → 정책 → Week9RuntimeLhi → 권한 → 요약. 정책 이름과 Athena·Glue의 읽기·쓰기, S3의 나열·읽기·쓰기 허용 요약. 기존 역할 연결 화면과 함께 제출 |
 | `iam_role_check.png` | 실행 지문과 STS 결과: 역할 이름·세션 인스턴스 ID |
 | `docker_ps.png` | 실행 지문과 Kafka 3개·UI·Spark master/worker·Airflow 실행 상태 |
 | `topic_describe.png` | 실행 지문과 PartitionCount 3·ReplicationFactor 2, 각 파티션의 ISR |
@@ -90,7 +91,7 @@ date && hostname && git rev-parse HEAD && bash scripts/create-ev-topic.sh
 
 ## 실제 실행 확인 기록
 
-2026-11-23 EC2에서 최종 Q1 구성 코드 커밋 `c7294f5`를 실행했습니다. 아래는 CLI·SSH로 실제 확인한 내용이고, 제출용 화면 캡처는 별도로 필요합니다.
+2026-11-23 EC2에서 Q1 구성 코드 커밋 `c7294f5`로 아래 실행 검증을 완료했습니다. 이후 검증 기록을 반영한 Q1 커밋 `bd7c93b`에서 STS·컨테이너 목록·토픽 정보를 다시 조회하여 터미널 캡처 3장을 촬영했습니다. 이 세 캡처에는 동일한 커밋 `bd7c93b`와 호스트명 `ip-172-31-11-232`가 표시됩니다. 두 커밋의 차이는 검증 기록이며 Q1 실행 구성은 동일합니다. EC2·보안 그룹·IAM 콘솔 캡처도 저장했고, 2026-11-26 정책 요약 캡처를 추가해 기존 IAM 화면에서 잘렸던 Athena·Glue 권한을 보완했습니다.
 
 - Kafka 3개, Kafka UI, Spark master·worker, Airflow가 실행되고 상태 검사가 통과했습니다. Kafka UI는 별도 Docker healthcheck가 없는 서비스이며, HTTP health API의 `UP` 응답을 확인했습니다.
 - `ev-charging-sessions`: 파티션 3개, 복제 2, 각 파티션 ISR 2개를 확인했습니다. Q2 데이터를 전송하지 않은 빈 토픽입니다.
@@ -160,6 +161,8 @@ Q2의 기존 메시지 175건을 그대로 사용합니다. 그룹은 `subscribe
 
 첫 Consumer가 모든 데이터를 먼저 읽지 않도록 할당 직후 `pause()`하고, `poll()`로 그룹 참여를 유지합니다. 두 멤버의 파티션 분담이 안정화된 것을 확인한 뒤 호스트의 `.runtime/q3/start` 파일을 생성하면 소비를 시작합니다. 이 파일은 레코드를 담지 않는 실행 제어용 신호입니다.
 
+소비를 시작한 뒤의 재할당에서는 새 담당자가 Kafka에 저장된 해당 그룹의 커밋 위치를 조회하고 `seek()`로 다음 읽을 위치를 맞춥니다. 미처리 데이터가 남은 파티션은 `resume()`하며, 시작 시점의 끝 오프셋까지 처리된 파티션은 pause 상태로 둡니다. 다른 Consumer가 남긴 커밋 위치도 완료 판단에 반영합니다. 먼저 자기 분량을 끝내고 대기하던 Consumer도 미처리 파티션을 넘겨받으면 처리를 재개하고 결과 보고서를 갱신합니다.
+
 `enable_auto_commit=False`로 자동 커밋을 끕니다. 각 JSON의 endedBy 집계가 끝난 다음 **해당 레코드 offset+1**만 동기 커밋합니다. 예를 들어 offset 7 처리 후 커밋 8은 다음 읽을 위치를 뜻하며, 8번 레코드를 이미 처리했다는 뜻은 아닙니다. 미리 읽어 둔 다른 레코드의 poll 위치 전체를 커밋하지 않습니다.
 
 호스트 터미널의 두 창에서 실행할 명령은 다음과 같습니다. 기존 그룹을 초기화하거나 Producer를 재실행하지 않습니다.
@@ -176,6 +179,8 @@ touch .runtime/q3/start
 ```
 
 각 Consumer는 자신의 파티션을 모두 처리하면 3종 endedBy 건수·총합·커밋 위치를 출력합니다. 이후에도 pause/poll을 유지하므로 Kafka UI 캡처 시 member 2개가 남습니다. 실제 offset별 처리 기록은 컨테이너 `/tmp/de9-q3-a.json`, `/tmp/de9-q3-b.json`에 저장합니다. 읽기 전용 `scripts/verify-q3.py`가 두 보고서를 원본 CSV 및 토픽의 실제 offset 범위와 대조해 중복·누락과 집계 불일치를 확인합니다.
+
+보고서의 `partitions`는 그 프로세스가 실제로 처리한 파티션 목록이고, `assigned_partitions`는 보고서를 쓴 시점의 현재 할당 목록입니다. `committed`에는 그 프로세스가 처리 후 커밋한 위치를 기록합니다. 리밸런싱으로 두 프로세스가 같은 파티션의 서로 다른 구간을 담당할 수 있으므로 검증기는 파티션 이름의 겹침을 오류로 간주하지 않고 `(partition, offset)` 단위의 중복·누락을 검사합니다. 집계는 프로세스별 메모리에 유지되며 다른 프로세스의 집계값을 가져오지 않습니다. 처리 도중 종료된 프로세스의 미저장 집계를 자동 복구하는 기능은 포함하지 않습니다.
 
 필수 캡처는 `part1-ev/capture/Q3/endedby_counts.png`(두 실제 실행 화면의 지문·각 endedBy 건수), `consumer_group_lag.png`(Kafka UI의 `ev-consumer-lhi`, member 2개, 각 파티션 current-offset·LAG)입니다. 집계 후 lag=0인 화면도 정상 결과입니다. 캡처 전에는 Consumer를 종료하거나 오프셋을 리셋하지 않습니다.
 
@@ -194,13 +199,23 @@ touch .runtime/q3/start
 
 두 보고서를 검증해 175개 `(partition,offset)`이 중복·누락 없이 처리됐고 원본 CSV의 endedBy 건수와 일치함을 확인했습니다. Kafka UI의 실제 읽기 API에서는 member 2개·STABLE·전체 lag 0, 파티션 0·1·2의 current-offset=76·35·64와 각각 lag 0을 확인했습니다.
 
-실제 실행 화면은 EC2의 `de9-q3` tmux 세션에 두 창을 나란히 배치해 보존하고 있습니다. SSH 접속한 터미널에서 아래 명령으로 연결하고, 창을 넓혀 양쪽의 실행 지문·리밸런싱·각 endedBy 집계를 함께 `endedby_counts.png`로 촬영합니다. 프로그램은 재실행하지 않습니다.
+당시 EC2의 `de9-q3` tmux 세션에 두 창을 나란히 배치하고 양쪽의 실행 지문·리밸런싱·각 endedBy 집계를 함께 `endedby_counts.png`로 촬영했습니다. 아래 명령은 당시 유지 중이던 세션에 접속한 방법입니다. 2026-11-25 작업 종료 후 EC2를 중지했으므로 현재도 해당 세션이 유지된다고 가정하지 않습니다. 저장된 캡처·보고서·로그로 당시 실행을 확인할 수 있습니다.
 
 ```bash
 tmux attach -t de9-q3
 ```
 
-Ctrl+B를 누르고 손을 뗀 뒤 D를 눌러 화면에서만 분리합니다. Consumer는 종료하지 않습니다. Kafka UI에서 Consumers → `ev-consumer-lhi` 상세 화면을 열고 그룹명·member 2개·각 파티션의 current-offset·LAG가 보이게 `consumer_group_lag.png`를 찍습니다. 캡처가 끝나기 전에는 stop 파일을 생성하거나 EC2를 중지하지 않습니다. 실제 보고서·리밸런싱 로그·API 응답도 호스트 `.runtime/q3/`에 보관했고 공개 Git에서는 제외합니다.
+당시 두 Consumer를 유지한 상태에서 Kafka UI의 Consumers → `ev-consumer-lhi` 상세 화면을 열어 그룹명·member 2개·각 파티션의 current-offset·LAG를 `consumer_group_lag.png`로 촬영했습니다. 실제 보고서·리밸런싱 로그·API 응답도 `.runtime/q3/`에 보관했고 공개 Git에서는 제외합니다.
+
+### Q3 리밸런싱 보완과 검증 범위 — 2026-11-26
+
+소비 시작 뒤 재할당 시 pause 상태가 풀리지 않던 코드를 수정했습니다. 브로커 없이 실행하는 로컬 회귀 검사에서는 최초 시작 전 대기, 커밋 위치부터 재개, 소비 도중 재할당, 완료 후 추가 파티션 인계와 보고서 갱신을 확인했습니다.
+
+```bash
+python3 -m unittest discover -s tests -p 'test_q3_rebalance.py' -v
+```
+
+이 검사는 실제 Consumer 함수에 가짜 Kafka I/O를 연결하여 실행하는 검사입니다. 수정 후 EC2·실제 Kafka에서 재실행하거나 멤버 종료 실험을 수행한 결과는 아닙니다. 기존 두 캡처는 수정 전 공개 커밋 `356742d`의 성공 실행 증빙으로 그대로 보존합니다. 해당 실행에서는 두 멤버의 재할당이 끝난 후 소비를 시작해 175건을 처리했으므로 저장된 집계·lag 결과는 유효합니다. 이 캡처를 이번 수정이나 소비 도중 재할당 후 재개의 실행 증빙으로 설명하지 않습니다. 제출 규정이 최종 코드와 캡처의 커밋 일치를 요구하거나 추가 재할당 실험을 요구한다면 수정된 코드로 별도 EC2 실행·캡처가 필요합니다. 기존 그룹 오프셋은 Q10에서 리셋한 상태이므로 이 검토 과정에서 Consumer를 다시 실행하거나 오프셋을 변경하지 않았습니다.
 
 공식 동작 근거: [kafka-python 2.3.2 KafkaConsumer](https://kafka-python.readthedocs.io/en/2.3.2/apidoc/KafkaConsumer.html).
 
@@ -687,6 +702,8 @@ CLI 리셋 후 `scripts/verify-q10.py --phase after`로 다시 확인하고 Kafk
 | Q9 | 4 | 완료 |
 | Q10 | 3 | 완료 |
 | 합계 | 30 | 누락 없음 |
+
+2026-11-26 Q1의 정책 요약 보완 캡처 `iam_policy_summary.png` 1장을 추가했습니다. 필수 30장에 보완 1장을 더해 현재 저장된 PNG는 총 31장입니다.
 
 필수 소스·Compose·Dockerfile·requirements와 추가로 참조하는 `charger_alerts.py`, `price_change.py`, `spark-defaults.conf`, 실행·검증 `scripts/`를 확인했습니다. PNG 30개의 파일 형식·CRC 무결성, 원본 CSV 2개의 행 수·SHA256, Python 25개 파일과 Bash 스크립트의 구문 검사를 통과했습니다. Git 전체 이력에서 AWS 액세스 키 ID·개인키·실제 Slack Webhook URL 패턴을 검사해 검출되지 않았습니다. 이 정적 점검은 앞서 수행한 실제 AWS 실행 검증과 구분하며, EC2를 재시작하거나 작업을 재실행하지 않았습니다.
 

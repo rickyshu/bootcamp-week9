@@ -23,10 +23,14 @@ ENDED_BY = ("CPS Server", "Customer", "Plug Out at Vehicle")
 
 
 class RebalanceLog(ConsumerRebalanceListener):
-    def __init__(self, consumer, label):
+    def __init__(self, consumer, label, ends):
         self.consumer = consumer
         self.label = label
+        self.ends = ends
         self.history = []
+        self.started = False
+        self.reported = False
+        self.next_offsets = {}
 
     def record(self, phase, partitions):
         ids = sorted(partition.partition for partition in partitions)
@@ -39,8 +43,39 @@ class RebalanceLog(ConsumerRebalanceListener):
         self.record("revoked", revoked)
 
     def on_partitions_assigned(self, assigned):
-        self.consumer.pause(*assigned)
-        self.record("assigned (paused)", assigned)
+        self.reported = False
+        if self.started:
+            self.activate(assigned, require_empty=False)
+            self.record("assigned (resumed from committed offsets)", assigned)
+        else:
+            if assigned:
+                self.consumer.pause(*assigned)
+            self.record("assigned (paused)", assigned)
+
+    def activate(self, assigned, require_empty):
+        # 새 담당자는 이전 담당자가 Kafka에 커밋한 다음 위치부터 읽습니다.
+        # 이전 프로세스의 로컬 집계나 미처리 poll 위치를 가져오지 않습니다.
+        next_offsets = {}
+        for target in assigned:
+            previous = self.consumer.committed(target)
+            if require_empty and previous not in (None, 0):
+                raise RuntimeError(f"이미 처리된 그룹 오프셋이 있습니다: {target}={previous}")
+            offset = 0 if previous is None else previous
+            if not 0 <= offset <= self.ends[target]:
+                raise RuntimeError(f"실험 범위 밖의 커밋 위치입니다: {target}={offset}")
+            self.consumer.seek(target, offset)
+            next_offsets[target] = offset
+        self.next_offsets = next_offsets
+        pending = [tp for tp in assigned if next_offsets[tp] < self.ends[tp]]
+        complete = [tp for tp in assigned if next_offsets[tp] == self.ends[tp]]
+        if complete:
+            self.consumer.pause(*complete)
+        if pending:
+            self.consumer.resume(*pending)
+
+    def start(self, assigned):
+        self.activate(assigned, require_empty=True)
+        self.started = True
 
 
 def main():
@@ -79,14 +114,12 @@ def main():
     counts = Counter({name: 0 for name in ENDED_BY})
     processed = []
     committed = {}
-    started = False
-    reported = False
-    listener = RebalanceLog(consumer, label)
     try:
         targets = [TopicPartition(TOPIC, number) for number in range(3)]
         ends = consumer.end_offsets(targets)
         if sum(ends.values()) != 175:
             raise RuntimeError(f"Q2의 175건 토픽이 필요합니다: {ends}")
+        listener = RebalanceLog(consumer, label, ends)
         consumer.subscribe([TOPIC], listener=listener)
         print(f"[{label}] group={GROUP}; auto_commit=False; per-record manual commit", flush=True)
         print(f"[{label}] Waiting for two members; poll continues while paused", flush=True)
@@ -94,7 +127,7 @@ def main():
         while not stop_requested and not args.stop_file.exists():
             batches = consumer.poll(timeout_ms=1000)
             assigned = consumer.assignment()
-            if not started:
+            if not listener.started:
                 if batches:
                     raise RuntimeError("시작 전 레코드가 반환됐습니다. 커밋하지 않고 종료합니다.")
                 if not args.start_file.exists():
@@ -103,13 +136,7 @@ def main():
                     continue
                 if not assigned:
                     continue
-                for target in assigned:
-                    previous = consumer.committed(target)
-                    if previous not in (None, 0):
-                        raise RuntimeError(f"이미 처리된 그룹 오프셋이 있습니다: {target}={previous}")
-                    committed[target] = 0
-                consumer.resume(*assigned)
-                started = True
+                listener.start(assigned)
                 print(f"[{label}] START partitions={sorted(tp.partition for tp in assigned)}", flush=True)
                 continue
 
@@ -125,17 +152,19 @@ def main():
                     counts[ended_by] += 1
                     consumer.commit({target: OffsetAndMetadata(record.offset + 1, "", -1)})
                     committed[target] = record.offset + 1
+                    listener.next_offsets[target] = record.offset + 1
                     processed.append([record.partition, record.offset, ended_by])
                     if len(processed) % 25 == 0:
                         print(f"[{label}] processed={len(processed)}; committed p{record.partition}={record.offset+1}", flush=True)
 
-            if not reported and assigned and all(committed.get(tp, 0) >= ends[tp] for tp in assigned):
+            if not listener.reported and assigned and all(listener.next_offsets[tp] >= ends[tp] for tp in assigned):
                 report = {
                     "name": args.name,
                     "group": GROUP,
                     "topic": TOPIC,
                     "completed_at": datetime.now(timezone.utc).isoformat(),
-                    "partitions": sorted(tp.partition for tp in assigned),
+                    "partitions": sorted({partition for partition, _, _ in processed}),
+                    "assigned_partitions": sorted(tp.partition for tp in assigned),
                     "ended_by": dict(counts),
                     "total": len(processed),
                     "committed": {str(tp.partition): offset for tp, offset in committed.items()},
@@ -151,7 +180,7 @@ def main():
                 print(f"[{label}] committed={report['committed']}", flush=True)
                 print(f"[{label}] HOLD: still polling; member stays active for capture", flush=True)
                 consumer.pause(*assigned)
-                reported = True
+                listener.reported = True
     finally:
         consumer.close()
         print(f"[{label}] STOPPED; processed={len(processed)}", flush=True)
